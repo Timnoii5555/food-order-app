@@ -198,7 +198,6 @@ with st.sidebar:
 
             if queue_count > 0:
                 # วนลูปแสดงออเดอร์ที่ค้างอยู่
-                # ใช้ .iterrows() เพื่อดึง index มาใช้ในการอัปเดต
                 for index, row in waiting_orders.iterrows():
                     with st.container(border=True):
                         k1, k2 = st.columns([3, 1])
@@ -405,4 +404,30 @@ elif st.session_state.page == 'cart':
         st.markdown(f"### 💰 ยอดรวม: **{total_price}** บาท")
         remark = st.text_area("💬 หมายเหตุ", placeholder="เช่น ไม่ใส่ผัก")
 
-        if st.button("✅ ยืนยันการสั่ง (Confirm)", type="
+        # แก้ไขจุดที่ Error แล้วครับ (เติมพารามิเตอร์ให้ครบ)
+        if st.button("✅ ยืนยันการสั่ง (Confirm)", type="primary", use_container_width=True):
+            thai_now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
+            items_str = ", ".join([f"{row['รายการ']} (x{row['จำนวน']})" for index, row in summary_df.iterrows()])
+
+            # บันทึกสถานะ waiting
+            save_order({
+                "เวลา": thai_now_str,
+                "โต๊ะ": table_no,
+                "ลูกค้า": customer_name,
+                "รายการอาหาร": items_str,
+                "ยอดรวม": total_price,
+                "หมายเหตุ": remark,
+                "สถานะ": "waiting"  # <--- สถานะเริ่มต้น
+            })
+
+            email_body = f"โต๊ะ: {table_no}\nลูกค้า: {customer_name}\nเวลา: {thai_now_str}\n\n{items_str}\n\nยอดรวม: {total_price} บาท\nหมายเหตุ: {remark}"
+            send_email_notification(f"🔔 Order ใหม่: {table_no}", email_body)
+
+            st.session_state.basket = []
+            st.session_state.page = 'menu'
+            st.balloons()
+            st.success("สั่งเรียบร้อย! คิวของคุณกำลังดำเนินการ")
+            time.sleep(2)
+            st.rerun()
+    else:
+        st.warning("ตะกร้าว่างเปล่า")
