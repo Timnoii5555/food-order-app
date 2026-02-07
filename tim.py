@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components  # ต้องใช้ตัวนี้เพื่อทำ Animation
 import pandas as pd
 import smtplib
 from email.mime.text import MIMEText
@@ -8,6 +9,7 @@ from datetime import datetime
 import time
 import pytz
 from collections import Counter
+import base64  # ใช้แปลงรูปเป็นโค้ดเพื่อส่งไปแสดงผลใน HTML
 
 # ================= 1. ตั้งค่าระบบ =================
 SENDER_EMAIL = 'jaskaikai4@gmail.com'
@@ -18,10 +20,11 @@ ORDER_CSV = 'order_history.csv'
 MENU_CSV = 'menu_data.csv'
 TABLES_CSV = 'tables_data.csv'
 IMAGE_FOLDER = 'uploaded_images'
-PROMO_BANNER_FILE = 'promo_banner.png'  # ชื่อไฟล์แบนเนอร์
+BANNER_FOLDER = 'banner_images'  # โฟลเดอร์ใหม่เก็บแบนเนอร์
 
-if not os.path.exists(IMAGE_FOLDER):
-    os.makedirs(IMAGE_FOLDER)
+# สร้างโฟลเดอร์
+if not os.path.exists(IMAGE_FOLDER): os.makedirs(IMAGE_FOLDER)
+if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 
 # ================= 2. ฟังก์ชันจัดการข้อมูล =================
@@ -82,13 +85,11 @@ def save_image(uploaded_file):
     return None
 
 
-def save_promo_banner(uploaded_file):
-    if uploaded_file is not None:
-        # บันทึกทับไฟล์เดิมเสมอ
-        with open(PROMO_BANNER_FILE, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        return True
-    return False
+# ฟังก์ชันแปลงรูปเป็น Base64 (เพื่อให้แสดงใน HTML Carousel ได้)
+def get_image_base64(path):
+    with open(path, "rb") as image_file:
+        encoded = base64.b64encode(image_file.read()).decode()
+    return f"data:image/png;base64,{encoded}"
 
 
 def send_email_notification(subject, body):
@@ -178,15 +179,15 @@ waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 queue_count = len(waiting_orders)
 
 # ================= 5. ส่วนหัวและเมนู =================
-c_logo, c_name, c_menu = st.columns([0.8, 2, 0.5])
+c_logo, c_name, c_menu = st.columns([1.5, 2, 0.5])
 with c_logo:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=80)
+        st.image("logo.png", width=150)
     else:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
 with c_name:
     st.markdown(
-        """<div style="display: flex; align-items: center; height: 80px;"><h1 style='color:#3E2723; font-size:32px; margin:0;'>Timnoi</h1></div>""",
+        """<div style="display: flex; align-items: center; height: 150px;"><h1 style='color:#3E2723; font-size:42px; margin:0;'>Timnoi</h1></div>""",
         unsafe_allow_html=True)
 with c_menu:
     st.write("")
@@ -231,10 +232,9 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # เพิ่ม Tab "📢 โปรโมชั่น"
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👨‍🍳 ครัว", "📢 โปรโมชั่น(5)", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย"])
 
-    with tab1:  # ครัว
+    with tab1:
         st.info(f"🔥 โต๊ะที่กำลังทานอยู่: {queue_count} โต๊ะ")
         if st.button("🔄 รีเฟรชออเดอร์"): st.rerun()
         if queue_count > 0:
@@ -249,39 +249,41 @@ elif st.session_state.app_mode == 'admin_dashboard':
                             st.code(row['รายการอาหาร'], language="text")
                         if str(row['หมายเหตุ']) != 'nan': st.warning(f"Note: {row['หมายเหตุ']}")
                     with c2:
-                        if st.button("💰 รับเงิน (จบโต๊ะ)", key=f"pay_{index}", type="primary",
-                                     use_container_width=True):
+                        if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary"):
                             orders_df.at[index, 'สถานะ'] = 'paid'
                             orders_df.to_csv(ORDER_CSV, index=False)
-                            st.success(f"รับเงินโต๊ะ {row['โต๊ะ']} เรียบร้อย!")
-                            time.sleep(1)
                             st.rerun()
         else:
             st.success("ไม่มีออเดอร์ค้าง")
 
-    with tab2:  # 📢 โปรโมชั่น (NEW)
-        st.header("📢 จัดการแบนเนอร์โปรโมชั่น")
-        st.info("รูปนี้จะแสดงที่หน้าแรกของลูกค้า (ด้านบนสุด)")
+    with tab2:  # === จัดการ Banner 5 รูป ===
+        st.header("📢 แบนเนอร์โปรโมชั่น (สูงสุด 5 รูป)")
+        st.caption("ระบบจะโชว์เฉพาะรูปที่มีอยู่ และเลื่อนอัตโนมัติทุก 5 วินาที")
 
-        # อัปโหลดรูปแบนเนอร์
-        uploaded_banner = st.file_uploader("อัปโหลดรูปแบนเนอร์ใหม่", type=['png', 'jpg', 'jpeg'])
-        if uploaded_banner is not None:
-            if save_promo_banner(uploaded_banner):
-                st.success("บันทึกแบนเนอร์เรียบร้อย! ✅")
-                time.sleep(1)
-                st.rerun()
+        for i in range(1, 6):  # Loop 1 ถึง 5
+            st.markdown(f"#### 🖼️ รูปที่ {i}")
+            col_b1, col_b2 = st.columns([2, 1])
 
-        st.markdown("---")
-        st.write("#### แบนเนอร์ปัจจุบัน:")
-        if os.path.exists(PROMO_BANNER_FILE):
-            st.image(PROMO_BANNER_FILE, use_container_width=True)
-            if st.button("🗑️ ลบแบนเนอร์ออก", type="primary"):
-                os.remove(PROMO_BANNER_FILE)
-                st.success("ลบแบนเนอร์แล้ว")
-                time.sleep(1)
-                st.rerun()
-        else:
-            st.warning("ยังไม่มีแบนเนอร์ (หน้าเว็บจะแสดงปกติ)")
+            filename = f"banner_{i}.png"
+            filepath = os.path.join(BANNER_FOLDER, filename)
+
+            with col_b1:
+                uploaded = st.file_uploader(f"อัปโหลดรูป {i}", type=['png', 'jpg', 'jpeg'], key=f"ban_up_{i}")
+                if uploaded:
+                    with open(filepath, "wb") as f: f.write(uploaded.getbuffer())
+                    st.success(f"บันทึกรูป {i} แล้ว")
+                    time.sleep(0.5)
+                    st.rerun()
+
+            with col_b2:
+                if os.path.exists(filepath):
+                    st.image(filepath, use_container_width=True)
+                    if st.button(f"🗑️ ลบรูป {i}", key=f"del_ban_{i}"):
+                        os.remove(filepath)
+                        st.rerun()
+                else:
+                    st.info("ว่าง")
+            st.markdown("---")
 
     with tab3:  # สต็อก/โต๊ะ
         st.write("#### 📦 จัดการสต็อก")
@@ -352,11 +354,61 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
 # === Customer Page ===
 else:
-    # ================= แสดงแบนเนอร์โปรโมชั่น (NEW) =================
-    if os.path.exists(PROMO_BANNER_FILE):
-        st.image(PROMO_BANNER_FILE, use_container_width=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-    # ============================================================
+    # ================= CAROUSEL SLIDESHOW (5 Sec Loop) =================
+    banner_images = []
+    for i in range(1, 6):
+        fpath = os.path.join(BANNER_FOLDER, f"banner_{i}.png")
+        if os.path.exists(fpath):
+            banner_images.append(get_image_base64(fpath))
+
+    if len(banner_images) > 0:
+        # สร้าง HTML สำหรับ Carousel
+        slides_html = ""
+        for idx, img_b64 in enumerate(banner_images):
+            display_style = "block" if idx == 0 else "none"
+            slides_html += f"""
+            <div class="mySlides fade" style="display: {display_style};">
+              <img src="{img_b64}" style="width:100%; border-radius:15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+            </div>
+            """
+
+        # ฝัง Script JavaScript
+        components.html(f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <style>
+        .mySlides {{display: none;}}
+        img {{vertical-align: middle;}}
+        .fade {{-webkit-animation-name: fade; -webkit-animation-duration: 1.5s; animation-name: fade; animation-duration: 1.5s;}}
+        @-webkit-keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}
+        @keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}
+        </style>
+        </head>
+        <body>
+        <div class="slideshow-container">
+            {slides_html}
+        </div>
+        <script>
+        let slideIndex = 0;
+        showSlides();
+        function showSlides() {{
+          let i;
+          let slides = document.getElementsByClassName("mySlides");
+          for (i = 0; i < slides.length; i++) {{
+            slides[i].style.display = "none";  
+          }}
+          slideIndex++;
+          if (slideIndex > slides.length) {{slideIndex = 1}}    
+          slides[slideIndex-1].style.display = "block";  
+          setTimeout(showSlides, 5000); // 5000ms = 5 วินาที
+        }}
+        </script>
+        </body>
+        </html>
+        """, height=320)  # ปรับความสูงกรอบแบนเนอร์ตรงนี้
+
+    # ====================================================================
 
     if queue_count > 0:
         st.markdown(f"""
