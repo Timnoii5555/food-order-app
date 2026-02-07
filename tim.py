@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components  # ต้องใช้ตัวนี้เพื่อทำ Animation
+import streamlit.components.v1 as components
 import pandas as pd
 import smtplib
 from email.mime.text import MIMEText
@@ -9,7 +9,7 @@ from datetime import datetime
 import time
 import pytz
 from collections import Counter
-import base64  # ใช้แปลงรูปเป็นโค้ดเพื่อส่งไปแสดงผลใน HTML
+import base64
 
 # ================= 1. ตั้งค่าระบบ =================
 SENDER_EMAIL = 'jaskaikai4@gmail.com'
@@ -20,9 +20,8 @@ ORDER_CSV = 'order_history.csv'
 MENU_CSV = 'menu_data.csv'
 TABLES_CSV = 'tables_data.csv'
 IMAGE_FOLDER = 'uploaded_images'
-BANNER_FOLDER = 'banner_images'  # โฟลเดอร์ใหม่เก็บแบนเนอร์
+BANNER_FOLDER = 'banner_images'
 
-# สร้างโฟลเดอร์
 if not os.path.exists(IMAGE_FOLDER): os.makedirs(IMAGE_FOLDER)
 if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
@@ -85,11 +84,20 @@ def save_image(uploaded_file):
     return None
 
 
-# ฟังก์ชันแปลงรูปเป็น Base64 (เพื่อให้แสดงใน HTML Carousel ได้)
 def get_image_base64(path):
     with open(path, "rb") as image_file:
         encoded = base64.b64encode(image_file.read()).decode()
     return f"data:image/png;base64,{encoded}"
+
+
+def save_promo_banner(uploaded_file, index):
+    if uploaded_file is not None:
+        filename = f"banner_{index}.png"
+        filepath = os.path.join(BANNER_FOLDER, filename)
+        with open(filepath, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        return True
+    return False
 
 
 def send_email_notification(subject, body):
@@ -178,17 +186,25 @@ orders_df = load_orders()
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 queue_count = len(waiting_orders)
 
-# ================= 5. ส่วนหัวและเมนู =================
-c_logo, c_name, c_menu = st.columns([1.5, 2, 0.5])
+# ================= 5. ส่วนหัวและเมนู (ปรับโลโก้ใหญ่ 397px) =================
+# ขยายช่องแรกให้กว้างขึ้นอีก (1.7) เพื่อให้ใส่รูป 397px ได้สบายๆ
+c_logo, c_name, c_menu = st.columns([1.7, 2, 0.5])
+
 with c_logo:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=150)
+        # แก้ขนาดตรงนี้เป็น 397 ตามที่ขอครับ
+        st.image("logo.png", width=397)
     else:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
+
 with c_name:
-    st.markdown(
-        """<div style="display: flex; align-items: center; height: 150px;"><h1 style='color:#3E2723; font-size:42px; margin:0;'>Timnoi</h1></div>""",
-        unsafe_allow_html=True)
+    # ปรับความสูง Flexbox ให้รองรับรูปใหญ่ (397px จะสูงประมาณ 250-300px ได้)
+    st.markdown("""
+        <div style="display: flex; align-items: center; height: 250px;">
+            <h1 style='color:#3E2723; font-size:65px; margin:0; line-height:1;'>Timnoi</h1>
+        </div>
+    """, unsafe_allow_html=True)
+
 with c_menu:
     st.write("")
     with st.popover("☰", use_container_width=True):
@@ -256,25 +272,19 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.success("ไม่มีออเดอร์ค้าง")
 
-    with tab2:  # === จัดการ Banner 5 รูป ===
+    with tab2:
         st.header("📢 แบนเนอร์โปรโมชั่น (สูงสุด 5 รูป)")
-        st.caption("ระบบจะโชว์เฉพาะรูปที่มีอยู่ และเลื่อนอัตโนมัติทุก 5 วินาที")
-
-        for i in range(1, 6):  # Loop 1 ถึง 5
-            st.markdown(f"#### 🖼️ รูปที่ {i}")
+        for i in range(1, 6):
             col_b1, col_b2 = st.columns([2, 1])
-
             filename = f"banner_{i}.png"
             filepath = os.path.join(BANNER_FOLDER, filename)
-
             with col_b1:
                 uploaded = st.file_uploader(f"อัปโหลดรูป {i}", type=['png', 'jpg', 'jpeg'], key=f"ban_up_{i}")
                 if uploaded:
-                    with open(filepath, "wb") as f: f.write(uploaded.getbuffer())
-                    st.success(f"บันทึกรูป {i} แล้ว")
-                    time.sleep(0.5)
-                    st.rerun()
-
+                    if save_promo_banner(uploaded, i):
+                        st.success(f"บันทึกรูป {i} แล้ว")
+                        time.sleep(0.5)
+                        st.rerun()
             with col_b2:
                 if os.path.exists(filepath):
                     st.image(filepath, use_container_width=True)
@@ -285,7 +295,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     st.info("ว่าง")
             st.markdown("---")
 
-    with tab3:  # สต็อก/โต๊ะ
+    with tab3:
         st.write("#### 📦 จัดการสต็อก")
         edited_stock = st.data_editor(menu_df[['name', 'in_stock']], disabled=["name"], hide_index=True)
         if st.button("บันทึกสต็อก"):
@@ -308,7 +318,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
             tables_df.to_csv(TABLES_CSV, index=False)
             st.rerun()
 
-    with tab4:  # เมนู
+    with tab4:
         st.write("#### ➕ เพิ่มเมนู")
         with st.form("add_m"):
             n = st.text_input("ชื่อเมนู")
@@ -340,6 +350,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         today_str = get_thai_time().strftime("%d/%m/%Y")
         st.caption(f"ประจำวันที่: {today_str}")
         if 'สถานะ' in orders_df.columns:
+            orders_df['ยอดรวม'] = pd.to_numeric(orders_df['ยอดรวม'], errors='coerce').fillna(0)
             daily_sales = orders_df[
                 (orders_df['สถานะ'] == 'paid') & (orders_df['เวลา'].astype(str).str.contains(today_str))]
             total_revenue = daily_sales['ยอดรวม'].sum()
@@ -354,7 +365,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
 # === Customer Page ===
 else:
-    # ================= CAROUSEL SLIDESHOW (5 Sec Loop) =================
     banner_images = []
     for i in range(1, 6):
         fpath = os.path.join(BANNER_FOLDER, f"banner_{i}.png")
@@ -362,7 +372,6 @@ else:
             banner_images.append(get_image_base64(fpath))
 
     if len(banner_images) > 0:
-        # สร้าง HTML สำหรับ Carousel
         slides_html = ""
         for idx, img_b64 in enumerate(banner_images):
             display_style = "block" if idx == 0 else "none"
@@ -371,8 +380,6 @@ else:
               <img src="{img_b64}" style="width:100%; border-radius:15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
             </div>
             """
-
-        # ฝัง Script JavaScript
         components.html(f"""
         <!DOCTYPE html>
         <html>
@@ -386,29 +393,23 @@ else:
         </style>
         </head>
         <body>
-        <div class="slideshow-container">
-            {slides_html}
-        </div>
+        <div class="slideshow-container">{slides_html}</div>
         <script>
         let slideIndex = 0;
         showSlides();
         function showSlides() {{
           let i;
           let slides = document.getElementsByClassName("mySlides");
-          for (i = 0; i < slides.length; i++) {{
-            slides[i].style.display = "none";  
-          }}
+          for (i = 0; i < slides.length; i++) {{slides[i].style.display = "none";}}
           slideIndex++;
           if (slideIndex > slides.length) {{slideIndex = 1}}    
           slides[slideIndex-1].style.display = "block";  
-          setTimeout(showSlides, 5000); // 5000ms = 5 วินาที
+          setTimeout(showSlides, 5000); 
         }}
         </script>
         </body>
         </html>
-        """, height=320)  # ปรับความสูงกรอบแบนเนอร์ตรงนี้
-
-    # ====================================================================
+        """, height=320)
 
     if queue_count > 0:
         st.markdown(f"""
