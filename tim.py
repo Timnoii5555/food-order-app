@@ -274,7 +274,6 @@ def save_order(data):
         status_result = "merged"
     else:
         df_new = pd.DataFrame([data])
-        # Force column order
         cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
         df_new = df_new[cols]
         if not os.path.exists(ORDER_CSV):
@@ -302,13 +301,13 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- 1. เพิ่ม Auto-Refresh ทุก 60 วินาที (Feature: Auto Refresh) ---
+# --- Feature: Auto Refresh (5 วินาที - เร็วขึ้นเพื่อให้เห็นสต็อกทันที) ---
 components.html(
     """
     <script>
         setTimeout(function(){
             window.parent.location.reload();
-        }, 60000);
+        }, 5000);
     </script>
     """,
     height=0
@@ -709,27 +708,32 @@ else:
                 if st.button("🔄 รีเฟรชดูสถานะครัว"): st.rerun()
             st.stop()
     else:
-        st.markdown("""<div class="queue-empty">✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ</div>""", unsafe_allow_html=True)
+        # --- Feature: แสดงคิวที่กำลังทำ (Top Queue Only) ---
+        if not waiting_orders.empty:
+            # ดึงออเดอร์บนสุดมาแสดงแค่อันเดียว
+            top_order = waiting_orders.iloc[0]
+            st.markdown(f"""
+            <div style="background-color:#E8F5E9; border: 2px solid #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; margin-bottom: 20px;">
+                ✅ ครัวกำลังปรุง: โต๊ะ {top_order['โต๊ะ']} (คุณ{top_order['ลูกค้า']}) <br>
+                <span style="font-size:0.9em; color:#555;">(คิวถัดไปจะแสดงเมื่อคิวนี้เสร็จสิ้น)</span>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""<div class="queue-empty">✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ</div>""", unsafe_allow_html=True)
 
     st.markdown("---")
 
     c_t, c_c = st.columns(2)
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
-        # Auto-Fill ชื่อเดิม
         def_name = st.session_state.user_name if st.session_state.user_name else ""
         cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
-        # --- 2. ระบบ Auto-Detect ลูกค้าเก่า (Feature: Auto Resume Order) ---
         if cust_name:
-            # ค้นหาว่าชื่อนี้มีออเดอร์ค้างอยู่ไหม
             existing_order = orders_df[(orders_df['ลูกค้า'] == cust_name) & (orders_df['สถานะ'] == 'waiting')]
             if not existing_order.empty:
-                # ถ้าเจอ -> ดึงโต๊ะมาเลย
                 found_table = existing_order.iloc[0]['โต๊ะ']
-
-                # ถ้ายังไม่ได้ set session state หรือ state ไม่ตรงกับที่เจอ -> อัปเดตและรีโหลด
                 if st.session_state.user_table != found_table:
                     st.session_state.user_table = found_table
                     st.session_state.user_name = cust_name
@@ -741,14 +745,15 @@ else:
         available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
         tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
 
-        # Auto-Select โต๊ะเดิมของลูกค้า
         default_idx = 0
         if st.session_state.user_table in tbl_options:
             default_idx = tbl_options.index(st.session_state.user_table)
 
         table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed")
 
-        # ถ้ามีออเดอร์ค้างอยู่ ให้ขึ้นข้อความบอก
+        # --- Feature: แสดงจำนวนโต๊ะว่าง ---
+        st.caption(f"🟢 เหลือโต๊ะว่าง: {len(available_tables)} โต๊ะ")
+
         if st.session_state.user_table and table_no == st.session_state.user_table:
             st.success(f"👋 ยินดีต้อนรับกลับ! รายการเดิมอยู่ที่: {table_no}")
 
