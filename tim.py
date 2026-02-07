@@ -10,6 +10,7 @@ import time
 import pytz
 from collections import Counter
 import base64
+import re
 
 # ================= 1. ตั้งค่าระบบ (Configuration) =================
 try:
@@ -273,6 +274,10 @@ def save_order(data):
         status_result = "merged"
     else:
         df_new = pd.DataFrame([data])
+        # === FIX: Force column order to prevent data swapping ===
+        cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
+        df_new = df_new[cols]
+
         if not os.path.exists(ORDER_CSV):
             df_new.to_csv(ORDER_CSV, index=False)
         else:
@@ -319,7 +324,6 @@ st.markdown("""
     .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
     .contact-link { text-decoration: none; color: #333; font-weight: bold; font-size: 16px; flex-grow: 1; }
 
-    /* Animation for warning */
     @keyframes pulse {
         0% { transform: scale(1); }
         50% { transform: scale(1.05); }
@@ -345,6 +349,8 @@ if 'page' not in st.session_state: st.session_state.page = 'menu'
 if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
 if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
 if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
+if 'user_table' not in st.session_state: st.session_state.user_table = None
+if 'user_name' not in st.session_state: st.session_state.user_name = ""
 
 daily_cleanup()
 
@@ -355,7 +361,6 @@ contact_info = load_contacts()
 queue_df = load_queue()
 feedback_df = load_feedback()
 
-# หาโต๊ะที่ไม่ว่าง (กำลัง Waiting)
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
 kitchen_load = len(waiting_orders)
@@ -473,19 +478,41 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     with c1:
                         st.markdown(f"**{row['โต๊ะ']}** | {row['เวลา']}")
                         st.markdown(f"👤 {row['ลูกค้า']}")
-                        # --- แก้ไขการแสดงผลที่สลับกัน ---
-                        st.info(f"💰 ยอดรวม: **{row['ยอดรวม']}** บาท")
+
+                        # --- แก้ไขการแสดงผลสลับกันแบบฉลาด (Smart Auto-Fix) ---
+                        val_price = row['ยอดรวม']
+                        val_note = row['หมายเหตุ']
+
+
+                        # ตรวจสอบว่าเป็นตัวเลขหรือไม่
+                        def is_number(s):
+                            try:
+                                float(str(s).replace(',', ''))
+                            except:
+                                return False
+                            return True
+
+
+                        # ถ้าช่องราคาดันเป็นข้อความ (Note) และช่อง Note ดันเป็นตัวเลข (ราคา) ให้สลับ
+                        if not is_number(val_price) and is_number(val_note):
+                            display_price = val_note
+                            display_note = val_price
+                        else:
+                            display_price = val_price
+                            display_note = val_note
+
+                        st.info(f"💰 ยอดรวม: **{display_price}** บาท")
                         with st.expander("รายการอาหาร"):
                             st.code(row['รายการอาหาร'], language="text")
-                        # แสดง Note ให้ถูกต้อง
-                        if str(row['หมายเหตุ']) != 'nan' and str(row['หมายเหตุ']) != '':
-                            st.warning(f"Note: {row['หมายเหตุ']}")
+
+                        if str(display_note) != 'nan' and str(display_note) != '':
+                            st.warning(f"Note: {display_note}")
+
                     with c2:
                         if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'paid'
                             orders_df.to_csv(ORDER_CSV, index=False)
                             st.rerun()
-                        # --- เพิ่มปุ่มยกเลิกออเดอร์ ---
                         if st.button("❌ ยกเลิก", key=f"cncl_{index}", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'cancelled'
                             orders_df.to_csv(ORDER_CSV, index=False)
@@ -682,22 +709,21 @@ else:
     with c_t:
         st.markdown("### 📍 เลือกโต๊ะ")
 
-        # --- กรองโต๊ะที่ไม่ว่างออก (Feature: New customers cannot select busy tables) ---
         all_tables = tables_df['table_name'].tolist()
-        available_tables = [t for t in all_tables if t not in busy_tables]
+        available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
 
-        # เพิ่มตัวเลือกบังคับ
         tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
-        table_no = st.selectbox("table", tbl_options, label_visibility="collapsed")
 
-        # แสดงข้อความถ้าโต๊ะเต็มบางส่วน
-        if len(busy_tables) > 0:
-            st.caption(f"🔒 โต๊ะที่กำลังใช้งาน: {', '.join(busy_tables)}")
+        default_idx = 0
+        if st.session_state.user_table in tbl_options:
+            default_idx = tbl_options.index(st.session_state.user_table)
+
+        table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed")
 
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
-        # ปล่อยว่างไว้เป็นค่าเริ่มต้น
-        cust_name = st.text_input("cust", "", placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
+        def_name = st.session_state.user_name if st.session_state.user_name else ""
+        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
     # --- Check Validation ---
@@ -709,7 +735,7 @@ else:
 
     if not cust_name:
         valid_input = False
-    elif "ลูกค้าทั่วไป" in cust_name:  # --- Feature: Block 'ลูกค้าทั่วไป' ---
+    elif "ลูกค้าทั่วไป" in cust_name:
         valid_input = False
         error_msg = "❌ ไม่อนุญาตให้ใช้ชื่อ 'ลูกค้าทั่วไป' กรุณาระบุชื่ออื่น"
 
@@ -719,7 +745,7 @@ else:
         else:
             st.markdown("""<div class="warning-box">🚨 กรุณา "เลือกโต๊ะ" และ "ใส่ชื่อ" เพื่อเริ่มสั่งอาหาร</div>""",
                         unsafe_allow_html=True)
-        st.stop()  # หยุดการทำงานตรงนี้ ไม่แสดงเมนูจนกว่าจะกรอกครบ
+        st.stop()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -836,6 +862,9 @@ else:
 
                     status = save_order({"เวลา": now_str, "โต๊ะ": table_no, "ลูกค้า": cust_name, "รายการอาหาร": items,
                                          "ยอดรวม": total_price, "หมายเหตุ": note, "สถานะ": "waiting"})
+
+                    st.session_state.user_table = table_no
+                    st.session_state.user_name = cust_name
 
                     body_intro = "🔔 Order เพิ่มเติม" if status == "merged" else "🔔 Order ใหม่"
                     body = f"โต๊ะ: {table_no}\nลูกค้า: {cust_name}\nเวลา: {now_str}\n\n{items}\n\nสั่งรอบนี้: {total_price} บาท\nNote: {note}"
