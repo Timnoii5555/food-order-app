@@ -26,11 +26,17 @@ if not os.path.exists(IMAGE_FOLDER):
 # ================= 2. ฟังก์ชันจัดการข้อมูล =================
 
 def load_menu():
-    # กำหนดหัวตารางให้ชัดเจน ป้องกันข้อมูลสลับช่อง
     columns = ["name", "price", "img", "category", "in_stock"]
 
     if not os.path.exists(MENU_CSV):
+        # เพิ่มเมนูเริ่มต้นให้มีน้ำซุปด้วย
         default_data = [
+            {"name": "ซุปน้ำดำ (Black Soup)", "price": 0,
+             "img": "https://images.unsplash.com/photo-1547592166-23acbe3a624b?auto=format&fit=crop&w=500&q=60",
+             "category": "น้ำซุป (Soup)", "in_stock": True},
+            {"name": "ซุปใส (Clear Soup)", "price": 0,
+             "img": "https://images.unsplash.com/photo-1626804475297-411dbe66b46b?auto=format&fit=crop&w=500&q=60",
+             "category": "น้ำซุป (Soup)", "in_stock": True},
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
              "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
@@ -49,7 +55,6 @@ def load_menu():
 
     try:
         df = pd.read_csv(MENU_CSV)
-        # ตรวจสอบคอลัมน์ให้ครบ
         for col in columns:
             if col not in df.columns:
                 df[col] = "" if col != "price" and col != "in_stock" else (0 if col == "price" else True)
@@ -69,7 +74,6 @@ def load_tables():
 
 
 def load_orders():
-    # บังคับเรียงคอลัมน์ให้ถูกต้อง แก้ปัญหา Note ไปโผล่ช่องราคา
     cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
     if not os.path.exists(ORDER_CSV):
         df = pd.DataFrame(columns=cols)
@@ -77,17 +81,14 @@ def load_orders():
         return df
 
     df = pd.read_csv(ORDER_CSV)
-    # ถ้าคอลัมน์ไม่ครบ ให้สร้างใหม่
     for c in cols:
         if c not in df.columns: df[c] = ""
-
-    return df[cols]  # Return แบบเรียงคอลัมน์เป๊ะๆ
+    return df[cols]
 
 
 def save_image(uploaded_file):
     if uploaded_file is not None:
         timestamp = int(time.time())
-        # แก้ชื่อไฟล์ให้ปลอดภัย ตัดอักขระพิเศษออก
         file_ext = uploaded_file.name.split('.')[-1]
         new_filename = f"img_{timestamp}.{file_ext}"
         file_path = os.path.join(IMAGE_FOLDER, new_filename)
@@ -120,13 +121,10 @@ def save_order(data):
 
     if mask.any():
         idx = df.index[mask][0]
-        # รวมรายการ
         old_items = str(df.at[idx, 'รายการอาหาร'])
         new_items = old_items + ", " + str(data['รายการอาหาร'])
-        # รวมราคา
         old_price = float(df.at[idx, 'ยอดรวม'])
         new_price = old_price + float(data['ยอดรวม'])
-        # รวมหมายเหตุ
         old_note = str(df.at[idx, 'หมายเหตุ'])
         if old_note == 'nan': old_note = ""
         new_note = str(data['หมายเหตุ'])
@@ -141,7 +139,6 @@ def save_order(data):
         return "merged"
     else:
         df_new = pd.DataFrame([data])
-        # ใช้ header=False ถ้ามีไฟล์อยู่แล้ว เพื่อไม่ให้หัวตารางซ้ำ
         mode = 'a' if os.path.exists(ORDER_CSV) else 'w'
         header = not os.path.exists(ORDER_CSV)
         df_new.to_csv(ORDER_CSV, mode=mode, header=header, index=False)
@@ -153,7 +150,6 @@ def get_thai_time():
     return datetime.now(tz)
 
 
-# ฟังก์ชันช่วยจัดการตะกร้า (+/-)
 def add_to_cart_by_name(name):
     menu = load_menu()
     item = menu[menu['name'] == name].iloc[0].to_dict()
@@ -161,14 +157,13 @@ def add_to_cart_by_name(name):
 
 
 def remove_from_cart_by_name(name):
-    # ลบออกทีละ 1 ชิ้น
     for i, item in enumerate(st.session_state.basket):
         if item['name'] == name:
             del st.session_state.basket[i]
             break
 
 
-# ================= 3. UI & CSS (Beautiful & Modern) =================
+# ================= 3. UI & CSS =================
 st.set_page_config(page_title="Timnoi Shabu", page_icon="🍲", layout="wide")
 
 st.markdown("""
@@ -177,12 +172,11 @@ st.markdown("""
 
     html, body, [class*="css"] {
         font-family: 'Kanit', sans-serif;
-        background-color: #F8F9FA; /* พื้นหลังสีเทาอ่อน สบายตา */
+        background-color: #F8F9FA;
     }
 
     header, footer {visibility: hidden;}
 
-    /* Card Design */
     .stContainer {
         background-color: white;
         border-radius: 12px;
@@ -190,14 +184,12 @@ st.markdown("""
         padding: 10px;
     }
 
-    /* ปุ่มกด */
     .stButton>button {
         border-radius: 8px;
         font-weight: 600;
         transition: all 0.2s;
     }
 
-    /* ปุ่มเพิ่มลงตะกร้า */
     div[data-testid="stButton"] button {
         background-color: #8D6E63;
         color: white;
@@ -208,7 +200,6 @@ st.markdown("""
         transform: translateY(-2px);
     }
 
-    /* ปุ่ม +/- ในตะกร้า */
     .small-btn button {
         padding: 0px 10px;
         font-size: 14px;
@@ -216,7 +207,6 @@ st.markdown("""
         min-height: 30px;
     }
 
-    /* กล่องคิว */
     .queue-card {
         background: linear-gradient(135deg, #4E342E 0%, #8D6E63 100%);
         color: white;
@@ -227,7 +217,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
 
-    /* รูปภาพเมนู */
     .menu-img {
         border-radius: 10px;
         object-fit: cover;
@@ -235,10 +224,7 @@ st.markdown("""
         height: 150px;
     }
 
-    /* Tab Styling */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 10px;
-    }
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         background-color: white;
         border-radius: 20px;
@@ -270,7 +256,6 @@ queue_count = len(waiting_orders)
 # ================= 5. ส่วนหัวและเมนู =================
 c1, c2, c3 = st.columns([1, 2, 0.5])
 with c1:
-    # แก้โลโก้ไม่ชัด: เพิ่ม width และใช้ use_container_width
     if os.path.exists("logo.png"):
         st.image("logo.png", width=150)
     else:
@@ -322,7 +307,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
     tab1, tab2, tab3, tab4 = st.tabs(["👨‍🍳 ครัว", "🪑 โต๊ะ/ของ", "📝 เมนู", "📊 ยอดขาย"])
 
-    with tab1:  # ครัว
+    with tab1:
         st.info(f"🔥 โต๊ะที่กำลังทาน: {queue_count} โต๊ะ")
         if st.button("🔄 รีเฟรช"): st.rerun()
 
@@ -334,15 +319,11 @@ elif st.session_state.app_mode == 'admin_dashboard':
                         st.markdown(f"### โต๊ะ: {row['โต๊ะ']}")
                         st.caption(f"เวลา: {row['เวลา']} | ลูกค้า: {row['ลูกค้า']}")
                         st.markdown("---")
-                        # แก้ Note ไปโผล่ช่องราคา: แสดงแยกกันชัดเจน
                         st.markdown(f"**รายการอาหาร:**")
                         st.code(row['รายการอาหาร'], language="text")
-
                         if str(row['หมายเหตุ']) != 'nan' and str(row['หมายเหตุ']) != '':
                             st.warning(f"💬 หมายเหตุเพิ่มเติม: {row['หมายเหตุ']}")
-
                         st.markdown(f"💰 **ยอดรวมสะสม: {float(row['ยอดรวม']):,.0f} บาท**")
-
                     with c2:
                         if st.button("💰 รับเงิน (จบโต๊ะ)", key=f"pay_{index}", type="primary",
                                      use_container_width=True):
@@ -354,7 +335,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.success("ยังไม่มีลูกค้า")
 
-    with tab2:  # โต๊ะ/สต็อก
+    with tab2:
         c_stock, c_table = st.columns(2)
         with c_stock:
             st.markdown("#### 📦 ตัดสต็อก")
@@ -380,13 +361,13 @@ elif st.session_state.app_mode == 'admin_dashboard':
                 tables_df.to_csv(TABLES_CSV, index=False)
                 st.rerun()
 
-    with tab3:  # เมนู
+    with tab3:
         st.markdown("#### ➕ เพิ่มเมนูใหม่")
         with st.form("add_m"):
             n = st.text_input("ชื่อเมนู")
             p = st.number_input("ราคา", min_value=0)
-            # เพิ่มหมวดหมู่ให้เลือก
-            cat_list = ["เนื้อสัตว์ (Meat)", "ทะเล (Seafood)", "ผัก (Veggie)", "ของทานเล่น (Snack)",
+            # เพิ่ม "น้ำซุป (Soup)" ลงในรายการหมวดหมู่
+            cat_list = ["น้ำซุป (Soup)", "เนื้อสัตว์ (Meat)", "ทะเล (Seafood)", "ผัก (Veggie)", "ของทานเล่น (Snack)",
                         "เครื่องดื่ม (Drink)", "อื่นๆ (Other)"]
             c = st.selectbox("หมวดหมู่", cat_list)
 
@@ -401,7 +382,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
                         saved_path = save_image(uploaded_file)
                         if saved_path: final_img_path = saved_path
 
-                    # บันทึกข้อมูลให้ครบทุกช่อง แก้ปัญหารูปหาย
                     nd = pd.DataFrame([{"name": n, "price": p, "img": final_img_path, "category": c, "in_stock": True}])
                     menu_df = pd.concat([menu_df, nd], ignore_index=True)
                     menu_df.to_csv(MENU_CSV, index=False)
@@ -416,7 +396,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
             menu_df.to_csv(MENU_CSV, index=False)
             st.rerun()
 
-    with tab4:  # ยอดขาย
+    with tab4:
         st.markdown("#### 📊 สรุปยอดขายวันนี้")
         today_str = get_thai_time().strftime("%d/%m/%Y")
         st.caption(f"วันที่: {today_str}")
@@ -434,7 +414,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
 # === Customer Page ===
 else:
-    # Queue Display
     if queue_count > 0:
         st.markdown(f"""
         <div class="queue-card">
@@ -446,7 +425,6 @@ else:
     with col_ref2:
         if st.button("🔄 เช็คสถานะล่าสุด", use_container_width=True): st.rerun()
 
-    # Table Selection
     with st.container():
         c_t, c_c = st.columns(2)
         with c_t:
@@ -460,33 +438,23 @@ else:
 
     st.write("")
 
-    # Menu Page
     if st.session_state.page == 'menu':
-        # ปุ่มตะกร้าลอย
         if len(st.session_state.basket) > 0:
             if st.button(f"🛒 ดูตะกร้า ({len(st.session_state.basket)} รายการ) ➡️", type="primary",
                          use_container_width=True):
                 st.session_state.page = 'cart'
                 st.rerun()
 
-        # แยกหมวดหมู่อาหาร (Tabs)
         categories = menu_df['category'].unique()
-        # เรียงลำดับหมวดหมู่ (ถ้าต้องการ)
-        # categories = sorted(categories)
-
         tabs = st.tabs(list(categories))
 
         for i, cat in enumerate(categories):
             with tabs[i]:
-                # กรองเมนูเฉพาะหมวดนี้
                 cat_menu = menu_df[menu_df['category'] == cat]
-
-                # แสดงผลแบบ Grid
                 cols = st.columns(2)
                 for idx, row in cat_menu.iterrows():
                     with cols[idx % 2]:
                         with st.container():
-                            # รูปภาพ
                             is_stock = row.get('in_stock', True)
                             img_src = str(row['img'])
                             try:
@@ -500,11 +468,9 @@ else:
                             except:
                                 st.image("https://placehold.co/400", caption="No Image")
 
-                            # ชื่อและราคา
                             st.markdown(f"**{row['name']}**")
                             st.caption(f"{row['price']} บาท")
 
-                            # ปุ่มเพิ่ม
                             if is_stock:
                                 if st.button("เพิ่ม +", key=f"add_{cat}_{idx}", use_container_width=True):
                                     st.session_state.basket.append(row.to_dict())
@@ -512,25 +478,20 @@ else:
                             else:
                                 st.button("หมด", key=f"out_{cat}_{idx}", disabled=True, use_container_width=True)
 
-    # Cart Page (ปรับปรุงใหม่ มีปุ่ม +/-)
     elif st.session_state.page == 'cart':
         st.button("⬅️ สั่งอาหารต่อ", on_click=lambda: st.session_state.update(page='menu'))
         st.markdown(f"### 🛒 ตะกร้าของ: {table_no}")
 
         if len(st.session_state.basket) > 0:
-            # รวมรายการที่เหมือนกัน
             basket_df = pd.DataFrame(st.session_state.basket)
             summary = basket_df['name'].value_counts().reset_index()
             summary.columns = ['name', 'count']
 
             total_price = 0
 
-            # แสดงรายการแบบ Card มีปุ่ม +/-
             for index, row in summary.iterrows():
                 item_name = row['name']
                 count = row['count']
-
-                # หาข้อมูลสินค้า
                 item_info = menu_df[menu_df['name'] == item_name].iloc[0]
                 price = item_info['price']
                 subtotal = price * count
@@ -547,7 +508,6 @@ else:
                         st.markdown(f"**{item_name}**")
                         st.caption(f"{price} บ. x {count} = **{subtotal} บ.**")
                     with c_action:
-                        # ปุ่ม +/-
                         bc1, bc2, bc3 = st.columns([1, 1, 1])
                         with bc1:
                             if st.button("➖", key=f"del_{index}", help="ลดจำนวน"):
@@ -568,10 +528,7 @@ else:
 
             if st.button("✅ ยืนยันการสั่ง", type="primary", use_container_width=True):
                 now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
-
-                # สร้าง string รายการอาหาร
                 items_str = ", ".join([f"{r['name']}(x{r['count']})" for i, r in summary.iterrows()])
-
                 status = save_order({
                     "เวลา": now_str,
                     "โต๊ะ": table_no,
@@ -581,7 +538,6 @@ else:
                     "หมายเหตุ": note,
                     "สถานะ": "waiting"
                 })
-
                 st.session_state.basket = []
                 st.session_state.page = 'menu'
                 st.balloons()
