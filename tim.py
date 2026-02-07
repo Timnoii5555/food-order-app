@@ -39,7 +39,6 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
-# หมวดหมู่ (Updated)
 CATEGORIES = [
     "เนื้อสัตว์ (Meat)",
     "ทะเล (Seafood)",
@@ -65,11 +64,19 @@ def force_file_update(filepath):
             pass
 
 
-# --- ฟังก์ชันช่วยเปลี่ยนหน้า (Callback) แก้ปัญหาเมนูค้าง ---
+# --- ฟังก์ชันช่วยเปลี่ยนหน้า ---
 def navigate_to(mode, page):
     st.session_state.app_mode = mode
     st.session_state.page = page
-    # การใช้ Callback จะทำให้ Streamlit Rerun อัตโนมัติและปิด Popover ให้เอง
+    st.rerun()
+
+
+# --- ฟังก์ชันบันทึกข้อมูลลูกค้าทันที (แก้ปัญหาข้อมูลหาย) ---
+def sync_user_data():
+    if 'cust_name_input' in st.session_state:
+        st.session_state.user_name = st.session_state.cust_name_input
+    if 'table_select_box' in st.session_state:
+        st.session_state.user_table = st.session_state.table_select_box
 
 
 def daily_cleanup():
@@ -350,9 +357,16 @@ st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;500;700&display=swap');
     html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; background-color: #FDFBF7; }
-    header, footer {visibility: hidden;}
+
+    /* Sidebar Style */
+    [data-testid="stSidebar"] {
+        background-color: #EFEBE9;
+        border-right: 1px solid #D7CCC8;
+    }
+
     .stButton>button { border-radius: 8px; font-weight: bold; background-color: #8D6E63; color: white; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; }
     .stButton>button:hover { background-color: #6D4C41; color: #FFECB3; transform: scale(1.02); }
+
     .customer-queue-box { background: linear-gradient(135deg, #3E2723 0%, #5D4037 100%); color: white; padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); border: 2px solid #D7CCC8; }
     .queue-title { font-size: 18px; font-weight: bold; color: #FFECB3; text-transform: uppercase; }
     .queue-big-number { font-size: 56px; font-weight: 800; line-height: 1; color: white; margin: 10px 0; }
@@ -452,10 +466,10 @@ if not queue_df.empty:
             waiting_q_count = len(queue_df)
 
         # ================= 5. ส่วนหัวและเมนู =================
-c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
+c_logo, c_name = st.columns([1.3, 3])
 with c_logo:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=320)
+        st.image("logo.png", width=300)
     else:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
 with c_name:
@@ -469,31 +483,33 @@ with c_name:
             </div>
         </div>
     """, unsafe_allow_html=True)
-with c_menu:
-    st.write("")
-    with st.popover("☰ เมนู", use_container_width=True):
-        st.markdown("### เมนูหลัก")
-        # --- FIX: Use callbacks to ensure popover closes ---
-        st.button("🏠 หน้าลูกค้า", on_click=navigate_to, args=('customer', 'menu'), use_container_width=True)
-        st.button("💬 เขียนติชม/สมุดเยี่ยม", on_click=navigate_to, args=('customer', 'feedback'),
-                  use_container_width=True)
-        st.button("⚙️ จัดการร้าน (Admin)", on_click=navigate_to, args=('admin_login', 'menu'), use_container_width=True)
 
-        st.markdown("---")
-        if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
-        st.markdown("---")
-        st.markdown("### 📞 ช่องทางติดต่อ")
-        fb_url = sanitize_link(contact_info.get('facebook', ''))
-        ig_url = sanitize_link(contact_info.get('instagram', ''))
-        line_id = contact_info.get('line', '-')
-        fb_icon = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png"
-        ig_icon = "https://cdn-icons-png.flaticon.com/512/3955/3955024.png"
-        line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
-        st.markdown(f"""
-        <div class="contact-row"><img src="{fb_icon}" class="contact-icon"><a href="{fb_url}" target="_blank" class="contact-link">Facebook</a></div>
-        <div class="contact-row"><img src="{ig_icon}" class="contact-icon"><a href="{ig_url}" target="_blank" class="contact-link">Instagram</a></div>
-        <div class="contact-row"><img src="{line_icon}" class="contact-icon"><span class="contact-link" style="color:#555;">Line: {line_id}</span></div>
-        """, unsafe_allow_html=True)
+# --- NEW: Sidebar Menu (Standard Way) ---
+with st.sidebar:
+    st.image("logo.png" if os.path.exists("logo.png") else "https://placehold.co/150", width=150)
+    st.title("เมนูหลัก")
+
+    if st.button("🏠 หน้าลูกค้า (Home)", use_container_width=True):
+        navigate_to('customer', 'menu')
+
+    if st.button("💬 เขียนติชม (Feedback)", use_container_width=True):
+        navigate_to('customer', 'feedback')
+
+    if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
+        navigate_to('admin_login', 'menu')
+
+    st.markdown("---")
+    if st.button("🔄 รีเฟรชระบบ", use_container_width=True):
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 📞 ช่องทางติดต่อ")
+    fb_url = sanitize_link(contact_info.get('facebook', ''))
+    ig_url = sanitize_link(contact_info.get('instagram', ''))
+    line_id = contact_info.get('line', '-')
+    st.markdown(f"**Line:** {line_id}")
+    st.markdown(f"[Facebook]({fb_url})")
+    st.markdown(f"[Instagram]({ig_url})")
 
 st.markdown("---")
 
@@ -604,7 +620,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         if st.button("บันทึกสต็อก"):
             menu_df['in_stock'] = edited_stock['in_stock']
             menu_df.to_csv(MENU_CSV, index=False)
-            force_file_update(MENU_CSV)
+            force_file_update(MENU_CSV)  # บังคับอัปเดตเวลาไฟล์ทันที
             st.toast("บันทึกแล้ว! ระบบจะแจ้งเตือนลูกค้าทันที")
             st.rerun()
 
@@ -782,22 +798,19 @@ else:
     c_t, c_c = st.columns(2)
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
-        def_name = st.session_state.user_name if st.session_state.user_name else ""
+        # --- State Persistence: Use value from session state ---
+        if 'user_name' not in st.session_state: st.session_state.user_name = ""
 
-        # --- State Persistence Logic ---
-        current_input_name = st.session_state.get("customer_name_input", "")
-        if current_input_name:
-            default_name = current_input_name
-        elif def_name:
-            default_name = def_name
-        else:
-            default_name = ""
-
-        cust_name = st.text_input("cust", value=default_name, placeholder="พิมพ์ชื่อเล่นของท่าน...",
-                                  label_visibility="collapsed", key="customer_name_input")
+        cust_name = st.text_input(
+            "cust",
+            value=st.session_state.user_name,
+            placeholder="พิมพ์ชื่อเล่นของท่าน...",
+            label_visibility="collapsed",
+            key="cust_name_input",
+            on_change=sync_user_data
+        )
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
-        # Auto-Resume Logic
         if cust_name:
             existing_order = orders_df[(orders_df['ลูกค้า'] == cust_name) & (orders_df['สถานะ'] == 'waiting')]
             if not existing_order.empty:
@@ -814,16 +827,18 @@ else:
         tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
 
         # --- State Persistence for Selectbox ---
-        current_select_table = st.session_state.get("table_select_box")
         default_idx = 0
-
-        if current_select_table and current_select_table in tbl_options:
-            default_idx = tbl_options.index(current_select_table)
-        elif st.session_state.user_table and st.session_state.user_table in tbl_options:
+        if st.session_state.user_table and st.session_state.user_table in tbl_options:
             default_idx = tbl_options.index(st.session_state.user_table)
 
-        table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed",
-                                key="table_select_box")
+        table_no = st.selectbox(
+            "table",
+            tbl_options,
+            index=default_idx,
+            label_visibility="collapsed",
+            key="table_select_box",
+            on_change=sync_user_data
+        )
 
         remaining_count = len(all_tables) - len(busy_tables)
         if remaining_count < 0: remaining_count = 0
