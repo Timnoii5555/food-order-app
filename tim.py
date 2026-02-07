@@ -19,7 +19,7 @@ RECEIVER_EMAIL = 'jaskaikai4@gmail.com'
 ORDER_CSV = 'order_history.csv'
 MENU_CSV = 'menu_data.csv'
 TABLES_CSV = 'tables_data.csv'
-CONTACT_CSV = 'contact_data.csv'  # <--- ไฟล์เก็บข้อมูลติดต่อ
+CONTACT_CSV = 'contact_data.csv'  # ไฟล์เก็บข้อมูลติดต่อ
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
@@ -73,15 +73,15 @@ def load_orders():
     return pd.read_csv(ORDER_CSV)
 
 
-# --- ฟังก์ชันโหลด/บันทึก ข้อมูลติดต่อ (NEW) ---
+# --- ฟังก์ชันโหลด/บันทึก ข้อมูลติดต่อ (สำคัญมาก) ---
 def load_contacts():
     if not os.path.exists(CONTACT_CSV):
-        # ค่าเริ่มต้น (ถ้ายังไม่ได้แก้)
+        # ค่าเริ่มต้น
         data = {
             "phone": "064-448-55549",
             "line": "@timnoishabu",
-            "facebook": "https://www.facebook.com",
-            "instagram": "https://www.instagram.com"
+            "facebook": "https://www.facebook.com/timnoishabu",
+            "instagram": "https://www.instagram.com/timnoishabu"
         }
         df = pd.DataFrame([data])
         df.to_csv(CONTACT_CSV, index=False)
@@ -177,6 +177,15 @@ def get_thai_time():
     return datetime.now(tz)
 
 
+# ฟังก์ชันช่วยแปลงลิ้งค์ให้ถูกต้อง (เติม https:// อัตโนมัติ ป้องกันลิ้งค์เสีย)
+def sanitize_link(link):
+    if not link: return "#"
+    link = str(link).strip()
+    if link.startswith("http://") or link.startswith("https://"):
+        return link
+    return "https://" + link
+
+
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
@@ -199,11 +208,31 @@ st.markdown("""
     .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
     h1, h2, h3 { color: #3E2723 !important; }
 
-    /* Contact Icon Style */
-    .contact-row { display: flex; align-items: center; margin-bottom: 10px; }
-    .contact-icon { width: 24px; height: 24px; margin-right: 10px; }
-    .contact-link { text-decoration: none; color: #3E2723; font-weight: bold; font-size: 16px; }
-    .contact-link:hover { color: #ea2a33; }
+    /* สไตล์ปุ่มติดต่อ (Contact Row) */
+    .contact-row {
+        display: flex;
+        align-items: center;
+        margin-bottom: 12px;
+        background-color: white;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid #eee;
+        transition: all 0.2s;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+    .contact-row:hover { 
+        transform: translateY(-2px); 
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        border-color: #8D6E63;
+    }
+    .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
+    .contact-link { 
+        text-decoration: none; 
+        color: #333; 
+        font-weight: bold; 
+        font-size: 16px; 
+        flex-grow: 1;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -216,7 +245,7 @@ if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass =
 menu_df = load_menu()
 tables_df = load_tables()
 orders_df = load_orders()
-contact_info = load_contacts()  # โหลดข้อมูลติดต่อ
+contact_info = load_contacts()  # โหลดข้อมูลติดต่อจากไฟล์
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 queue_count = len(waiting_orders)
 
@@ -254,28 +283,33 @@ with c_menu:
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
 
-        # === แสดงช่องทางติดต่อ (พร้อมไอคอน) ===
+        # === CONTACT SECTION (ดึงข้อมูลจริงจาก Admin มาแสดง) ===
         st.markdown("---")
         st.markdown("### 📞 ช่องทางติดต่อ")
 
-        # ไอคอน Online (ใช้ URL ตรงเพื่อให้ชัวร์)
-        fb_icon = "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg"
-        ig_icon = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
+        # แปลงลิ้งค์ให้ถูกต้อง (เติม https:// ถ้าไม่มี)
+        fb_url = sanitize_link(contact_info.get('facebook', ''))
+        ig_url = sanitize_link(contact_info.get('instagram', ''))
+        line_id = contact_info.get('line', '-')
+
+        # ไอคอน (ใช้ URL ที่เสถียร)
+        fb_icon = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png"
+        ig_icon = "https://cdn-icons-png.flaticon.com/512/3955/3955024.png"
         line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
 
-        # แสดงผลแบบ HTML
+        # แสดงปุ่มกด (คลิกแล้วเด้งไปแอพ)
         st.markdown(f"""
         <div class="contact-row">
             <img src="{fb_icon}" class="contact-icon">
-            <a href="{contact_info.get('facebook', '#')}" target="_blank" class="contact-link">Facebook</a>
+            <a href="{fb_url}" target="_blank" class="contact-link">Facebook</a>
         </div>
         <div class="contact-row">
             <img src="{ig_icon}" class="contact-icon">
-            <a href="{contact_info.get('instagram', '#')}" target="_blank" class="contact-link">Instagram</a>
+            <a href="{ig_url}" target="_blank" class="contact-link">Instagram</a>
         </div>
         <div class="contact-row">
             <img src="{line_icon}" class="contact-icon">
-            <span class="contact-link">{contact_info.get('line', '-')}</span>
+            <span class="contact-link" style="color:#555;">Line: {line_id}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -309,9 +343,8 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # เพิ่ม Tab "📞 ข้อมูลติดต่อ"
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ข้อมูลติดต่อ"])
+        ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ติดต่อ"])
 
     with tab1:
         st.info(f"🔥 โต๊ะที่กำลังทานอยู่: {queue_count} โต๊ะ")
@@ -427,14 +460,16 @@ elif st.session_state.app_mode == 'admin_dashboard':
             st.warning("ยังไม่มีข้อมูลยอดขาย")
 
     with tab6:  # === หน้าจัดการ Contact (NEW) ===
-        st.subheader("📞 จัดการข้อมูลติดต่อ")
-        with st.form("contact_form"):
-            new_phone = st.text_input("เบอร์โทรศัพท์", value=contact_info.get('phone', ''))
-            new_line = st.text_input("Line ID", value=contact_info.get('line', ''))
-            new_fb = st.text_input("Facebook Link (URL)", value=contact_info.get('facebook', ''))
-            new_ig = st.text_input("Instagram Link (URL)", value=contact_info.get('instagram', ''))
+        st.subheader("📞 จัดการลิ้งค์และเบอร์โทร")
+        st.info("ใส่ลิ้งค์เพจ หรือเบอร์โทรที่ต้องการ แล้วกดบันทึก (ไม่ต้องใส่ https:// ก็ได้ ระบบเติมให้เอง)")
 
-            if st.form_submit_button("บันทึกข้อมูลติดต่อ"):
+        with st.form("contact_form"):
+            new_phone = st.text_input("📞 เบอร์โทรศัพท์", value=contact_info.get('phone', ''))
+            new_line = st.text_input("💬 Line ID", value=contact_info.get('line', ''))
+            new_fb = st.text_input("🔵 Facebook Link (URL)", value=contact_info.get('facebook', ''))
+            new_ig = st.text_input("🟣 Instagram Link (URL)", value=contact_info.get('instagram', ''))
+
+            if st.form_submit_button("💾 บันทึกข้อมูลติดต่อ"):
                 new_data = {
                     "phone": new_phone,
                     "line": new_line,
@@ -442,7 +477,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     "instagram": new_ig
                 }
                 save_contacts(new_data)
-                st.success("บันทึกเรียบร้อย! ✅")
+                st.success("บันทึกเรียบร้อย! ข้อมูลหน้าเว็บอัปเดตแล้วครับ ✅")
                 time.sleep(1)
                 st.rerun()
 
