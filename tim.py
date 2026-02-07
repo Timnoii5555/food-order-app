@@ -274,10 +274,9 @@ def save_order(data):
         status_result = "merged"
     else:
         df_new = pd.DataFrame([data])
-        # === FIX: Force column order to prevent data swapping ===
+        # Force column order
         cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
         df_new = df_new[cols]
-
         if not os.path.exists(ORDER_CSV):
             df_new.to_csv(ORDER_CSV, index=False)
         else:
@@ -302,6 +301,18 @@ def sanitize_link(link):
 
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
+
+# --- 1. เพิ่ม Auto-Refresh ทุก 60 วินาที (Feature: Auto Refresh) ---
+components.html(
+    """
+    <script>
+        setTimeout(function(){
+            window.parent.location.reload();
+        }, 60000);
+    </script>
+    """,
+    height=0
+)
 
 st.markdown("""
 <style>
@@ -479,12 +490,10 @@ elif st.session_state.app_mode == 'admin_dashboard':
                         st.markdown(f"**{row['โต๊ะ']}** | {row['เวลา']}")
                         st.markdown(f"👤 {row['ลูกค้า']}")
 
-                        # --- แก้ไขการแสดงผลสลับกันแบบฉลาด (Smart Auto-Fix) ---
                         val_price = row['ยอดรวม']
                         val_note = row['หมายเหตุ']
 
 
-                        # ตรวจสอบว่าเป็นตัวเลขหรือไม่
                         def is_number(s):
                             try:
                                 float(str(s).replace(',', ''))
@@ -493,7 +502,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
                             return True
 
 
-                        # ถ้าช่องราคาดันเป็นข้อความ (Note) และช่อง Note ดันเป็นตัวเลข (ราคา) ให้สลับ
                         if not is_number(val_price) and is_number(val_note):
                             display_price = val_note
                             display_note = val_price
@@ -706,25 +714,43 @@ else:
     st.markdown("---")
 
     c_t, c_c = st.columns(2)
+    with c_c:
+        st.markdown("### 👤 ชื่อลูกค้า")
+        # Auto-Fill ชื่อเดิม
+        def_name = st.session_state.user_name if st.session_state.user_name else ""
+        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
+        st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
+
+        # --- 2. ระบบ Auto-Detect ลูกค้าเก่า (Feature: Auto Resume Order) ---
+        if cust_name:
+            # ค้นหาว่าชื่อนี้มีออเดอร์ค้างอยู่ไหม
+            existing_order = orders_df[(orders_df['ลูกค้า'] == cust_name) & (orders_df['สถานะ'] == 'waiting')]
+            if not existing_order.empty:
+                # ถ้าเจอ -> ดึงโต๊ะมาเลย
+                found_table = existing_order.iloc[0]['โต๊ะ']
+
+                # ถ้ายังไม่ได้ set session state หรือ state ไม่ตรงกับที่เจอ -> อัปเดตและรีโหลด
+                if st.session_state.user_table != found_table:
+                    st.session_state.user_table = found_table
+                    st.session_state.user_name = cust_name
+                    st.rerun()
+
     with c_t:
         st.markdown("### 📍 เลือกโต๊ะ")
-
         all_tables = tables_df['table_name'].tolist()
         available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
-
         tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
 
+        # Auto-Select โต๊ะเดิมของลูกค้า
         default_idx = 0
         if st.session_state.user_table in tbl_options:
             default_idx = tbl_options.index(st.session_state.user_table)
 
         table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed")
 
-    with c_c:
-        st.markdown("### 👤 ชื่อลูกค้า")
-        def_name = st.session_state.user_name if st.session_state.user_name else ""
-        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
-        st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
+        # ถ้ามีออเดอร์ค้างอยู่ ให้ขึ้นข้อความบอก
+        if st.session_state.user_table and table_no == st.session_state.user_table:
+            st.success(f"👋 ยินดีต้อนรับกลับ! รายการเดิมอยู่ที่: {table_no}")
 
     # --- Check Validation ---
     valid_input = True
@@ -860,9 +886,11 @@ else:
                     now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
                     items = ", ".join([f"{name}(x{count})" for name, count in counts.items()])
 
+                    # === Save Order & Update Session State ===
                     status = save_order({"เวลา": now_str, "โต๊ะ": table_no, "ลูกค้า": cust_name, "รายการอาหาร": items,
                                          "ยอดรวม": total_price, "หมายเหตุ": note, "สถานะ": "waiting"})
 
+                    # Remember User
                     st.session_state.user_table = table_no
                     st.session_state.user_name = cust_name
 
