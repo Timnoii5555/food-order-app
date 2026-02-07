@@ -39,7 +39,7 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
-# หมวดหมู่ใหม่ (ไทย + อังกฤษ)
+# หมวดหมู่ (Updated)
 CATEGORIES = [
     "เนื้อสัตว์ (Meat)",
     "ทะเล (Seafood)",
@@ -55,6 +55,21 @@ CATEGORIES = [
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
     return datetime.now(tz)
+
+
+def force_file_update(filepath):
+    if os.path.exists(filepath):
+        try:
+            os.utime(filepath, None)
+        except:
+            pass
+
+
+# --- ฟังก์ชันช่วยเปลี่ยนหน้า (Callback) แก้ปัญหาเมนูค้าง ---
+def navigate_to(mode, page):
+    st.session_state.app_mode = mode
+    st.session_state.page = page
+    # การใช้ Callback จะทำให้ Streamlit Rerun อัตโนมัติและปิด Popover ให้เอง
 
 
 def daily_cleanup():
@@ -73,7 +88,9 @@ def daily_cleanup():
                                 changed = True
                         except:
                             pass
-                if changed: df.to_csv(ORDER_CSV, index=False)
+                if changed:
+                    df.to_csv(ORDER_CSV, index=False)
+                    force_file_update(ORDER_CSV)
         except:
             pass
 
@@ -86,13 +103,13 @@ def daily_cleanup():
                 today_date_sys = get_thai_time().strftime("%Y-%m-%d")
                 if q_date_str != today_date_sys:
                     pd.DataFrame(columns=["queue_id", "customer_name", "timestamp"]).to_csv(QUEUE_CSV, index=False)
+                    force_file_update(QUEUE_CSV)
         except:
             pass
 
 
 def load_menu():
     if not os.path.exists(MENU_CSV):
-        # Default Data Updated with New Categories
         default_data = [
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
@@ -109,6 +126,7 @@ def load_menu():
         ]
         df = pd.DataFrame(default_data)
         df.to_csv(MENU_CSV, index=False)
+        force_file_update(MENU_CSV)
     try:
         df = pd.read_csv(MENU_CSV)
         required_cols = ["name", "price", "img", "category", "in_stock"]
@@ -184,6 +202,7 @@ def add_to_queue(name):
     new_data = {"queue_id": new_id, "customer_name": name, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
     df.to_csv(QUEUE_CSV, index=False)
+    force_file_update(QUEUE_CSV)
     return new_id, False
 
 
@@ -192,6 +211,7 @@ def pop_queue():
     if not df.empty:
         df = df.iloc[1:]
         df.to_csv(QUEUE_CSV, index=False)
+        force_file_update(QUEUE_CSV)
 
 
 def load_feedback():
@@ -293,6 +313,8 @@ def save_order(data):
             df_new.to_csv(ORDER_CSV, mode='a', header=False, index=False)
         status_result = "new"
 
+    force_file_update(ORDER_CSV)
+
     if 'my_queue_id' in st.session_state and st.session_state.my_queue_id:
         queue_df = load_queue()
         if not queue_df.empty and queue_df.iloc[0]['queue_id'] == st.session_state.my_queue_id:
@@ -312,14 +334,13 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- Feature: Polling Script (ทุก 2 วินาที) ---
-# ทำหน้าที่กระตุ้นให้ Streamlit รัน script ใหม่ เพื่อเช็คการเปลี่ยนแปลง
+# --- Polling Script (ทุก 3 วินาที) ---
 components.html(
     """
     <script>
         setInterval(function(){
             window.parent.document.querySelector(".stApp").dispatchEvent(new Event("change"));
-        }, 2000);
+        }, 3000);
     </script>
     """,
     height=0,
@@ -340,21 +361,8 @@ st.markdown("""
     .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
     .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
 
-    /* Out of Stock Style */
-    .out-of-stock-img { 
-        filter: grayscale(100%); 
-        opacity: 0.5; 
-        transition: all 0.3s ease;
-    }
-    .out-of-stock-label {
-        color: red; 
-        font-weight: bold; 
-        text-align: center; 
-        margin-top: -30px; 
-        margin-bottom: 10px; 
-        background: rgba(255,255,255,0.8);
-        border-radius: 5px;
-    }
+    .out-of-stock-img { filter: grayscale(100%); opacity: 0.5; transition: all 0.3s ease; }
+    .out-of-stock-label { color: red; font-weight: bold; text-align: center; margin-top: -30px; margin-bottom: 10px; background: rgba(255,255,255,0.8); border-radius: 5px; }
 
     h1, h2, h3 { color: #3E2723 !important; }
     .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
@@ -379,15 +387,7 @@ st.markdown("""
         margin-bottom: 20px;
     }
     .kitchen-status-box {
-        background-color: #E8F5E9; 
-        border: 2px solid #4CAF50; 
-        color: #2E7D32; 
-        padding: 15px; 
-        border-radius: 12px; 
-        text-align: center; 
-        font-weight: bold; 
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        background-color: #E8F5E9; border: 2px solid #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -411,7 +411,7 @@ if os.path.exists(MENU_CSV):
         st.session_state.menu_mtime = current_mtime
         st.toast("📢 มีการอัปเดตรายการอาหาร/สต็อก!")
         time.sleep(1)
-        st.rerun()  # รีเฟรชทันทีเมื่อไฟล์เปลี่ยน (ข้อมูล Input ไม่หายเพราะอยู่ใน Session State)
+        st.rerun()
     else:
         st.session_state.menu_mtime = current_mtime
 
@@ -473,16 +473,12 @@ with c_menu:
     st.write("")
     with st.popover("☰ เมนู", use_container_width=True):
         st.markdown("### เมนูหลัก")
-        if st.button("🏠 หน้าลูกค้า", use_container_width=True):
-            st.session_state.app_mode = 'customer'
-            st.rerun()
-        if st.button("💬 เขียนติชม/สมุดเยี่ยม", use_container_width=True):
-            st.session_state.app_mode = 'customer'
-            st.session_state.page = 'feedback'
-            st.rerun()
-        if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
-            st.session_state.app_mode = 'admin_login'
-            st.rerun()
+        # --- FIX: Use callbacks to ensure popover closes ---
+        st.button("🏠 หน้าลูกค้า", on_click=navigate_to, args=('customer', 'menu'), use_container_width=True)
+        st.button("💬 เขียนติชม/สมุดเยี่ยม", on_click=navigate_to, args=('customer', 'feedback'),
+                  use_container_width=True)
+        st.button("⚙️ จัดการร้าน (Admin)", on_click=navigate_to, args=('admin_login', 'menu'), use_container_width=True)
+
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
         st.markdown("---")
@@ -506,14 +502,12 @@ st.markdown("---")
 if st.session_state.app_mode == 'admin_login':
     st.subheader("🔐 เข้าสู่ระบบหลังร้าน")
     if st.button("⬅️ กลับ"):
-        st.session_state.app_mode = 'customer'
-        st.rerun()
+        navigate_to('customer', 'menu')
     password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
     if password_input == ADMIN_PASSWORD:
         st.success("รหัสถูกต้อง! ✅")
         time.sleep(0.5)
-        st.session_state.app_mode = 'admin_dashboard'
-        st.rerun()
+        navigate_to('admin_dashboard', 'menu')
     elif password_input:
         st.error("รหัสผิด! ❌")
         if st.session_state.last_wrong_pass != password_input:
@@ -524,8 +518,7 @@ if st.session_state.app_mode == 'admin_login':
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
     if st.button("🚪 ออกจากระบบ"):
-        st.session_state.app_mode = 'customer'
-        st.rerun()
+        navigate_to('customer', 'menu')
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
         ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ติดต่อ", "💬 อ่านรีวิว"])
@@ -572,10 +565,12 @@ elif st.session_state.app_mode == 'admin_dashboard':
                         if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'paid'
                             orders_df.to_csv(ORDER_CSV, index=False)
+                            force_file_update(ORDER_CSV)
                             st.rerun()
                         if st.button("❌ ยกเลิก", key=f"cncl_{index}", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'cancelled'
                             orders_df.to_csv(ORDER_CSV, index=False)
+                            force_file_update(ORDER_CSV)
                             st.rerun()
         else:
             st.success("ไม่มีออเดอร์ค้าง")
@@ -609,7 +604,10 @@ elif st.session_state.app_mode == 'admin_dashboard':
         if st.button("บันทึกสต็อก"):
             menu_df['in_stock'] = edited_stock['in_stock']
             menu_df.to_csv(MENU_CSV, index=False)
-            st.toast("บันทึกแล้ว")
+            force_file_update(MENU_CSV)
+            st.toast("บันทึกแล้ว! ระบบจะแจ้งเตือนลูกค้าทันที")
+            st.rerun()
+
         st.markdown("---")
         st.write("#### 🪑 จัดการโต๊ะ")
         with st.form("add_tbl"):
@@ -643,7 +641,8 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     nd = pd.DataFrame([{"name": n, "price": p, "img": final_img_path, "category": c, "in_stock": True}])
                     menu_df = pd.concat([menu_df, nd], ignore_index=True)
                     menu_df.to_csv(MENU_CSV, index=False)
-                    st.success(f"เพิ่ม {n} สำเร็จ!")
+                    force_file_update(MENU_CSV)
+                    st.success(f"เพิ่ม {n} สำเร็จ! ลูกค้าจะเห็นเมนูใหม่ทันที")
                     time.sleep(1)
                     st.rerun()
         st.write("#### ❌ ลบเมนู")
@@ -651,6 +650,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         if st.button("ลบเมนู") and del_m != "-":
             menu_df = menu_df[menu_df['name'] != del_m]
             menu_df.to_csv(MENU_CSV, index=False)
+            force_file_update(MENU_CSV)
             st.rerun()
 
     with tab5:
@@ -783,11 +783,21 @@ else:
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
         def_name = st.session_state.user_name if st.session_state.user_name else ""
-        # --- State Persistence: Use key to retain value on refresh ---
-        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed",
-                                  key="customer_name_input")
+
+        # --- State Persistence Logic ---
+        current_input_name = st.session_state.get("customer_name_input", "")
+        if current_input_name:
+            default_name = current_input_name
+        elif def_name:
+            default_name = def_name
+        else:
+            default_name = ""
+
+        cust_name = st.text_input("cust", value=default_name, placeholder="พิมพ์ชื่อเล่นของท่าน...",
+                                  label_visibility="collapsed", key="customer_name_input")
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
+        # Auto-Resume Logic
         if cust_name:
             existing_order = orders_df[(orders_df['ลูกค้า'] == cust_name) & (orders_df['สถานะ'] == 'waiting')]
             if not existing_order.empty:
@@ -803,15 +813,18 @@ else:
         available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
         tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
 
+        # --- State Persistence for Selectbox ---
+        current_select_table = st.session_state.get("table_select_box")
         default_idx = 0
-        if st.session_state.user_table in tbl_options:
+
+        if current_select_table and current_select_table in tbl_options:
+            default_idx = tbl_options.index(current_select_table)
+        elif st.session_state.user_table and st.session_state.user_table in tbl_options:
             default_idx = tbl_options.index(st.session_state.user_table)
 
-        # --- State Persistence: Use key to retain value on refresh ---
         table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed",
                                 key="table_select_box")
 
-        # --- Feature 2: แสดงจำนวนโต๊ะว่าง ---
         remaining_count = len(all_tables) - len(busy_tables)
         if remaining_count < 0: remaining_count = 0
 
@@ -845,7 +858,7 @@ else:
     st.markdown("<br>", unsafe_allow_html=True)
 
     if st.session_state.page == 'feedback':
-        st.button("⬅️ กลับไปหน้าสั่งอาหาร", on_click=lambda: st.session_state.update(page='menu'))
+        st.button("⬅️ กลับไปหน้าสั่งอาหาร", on_click=navigate_to, args=('customer', 'menu'))
         st.subheader("💬 เขียนติชม/สมุดเยี่ยม")
         st.info("ทุกความคิดเห็นของท่าน มีค่าสำหรับเราครับ 😊")
         with st.form("feed_form"):
@@ -869,9 +882,7 @@ else:
                     is_stock = row.get('in_stock', True)
                     img_src = str(row['img'])
 
-                    # --- Stock Visuals ---
                     if not is_stock:
-                        # Grayscale + Out of Stock Label
                         try:
                             st.markdown(f"""
                             <div style="position:relative;">
@@ -903,12 +914,11 @@ else:
         if len(st.session_state.basket) > 0:
             st.markdown("---")
             if st.button(f"🛒 สรุปยอด ({len(st.session_state.basket)} รายการ) ➡️", type="primary",
-                         use_container_width=True):
-                st.session_state.page = 'cart'
-                st.rerun()
+                         use_container_width=True, on_click=navigate_to, args=('customer', 'cart')):
+                pass
 
     elif st.session_state.page == 'cart':
-        st.button("⬅️ เลือกอาหารเพิ่ม", on_click=lambda: st.session_state.update(page='menu'))
+        st.button("⬅️ เลือกอาหารเพิ่ม", on_click=navigate_to, args=('customer', 'menu'))
         st.markdown(f"""
         <div style="background-color:#5D4037; color:white; padding:15px; border-radius:10px; text-align:center; margin-bottom:20px;">
             <h3>🛒 สรุปรายการสั่งซื้อ</h3>
@@ -966,11 +976,9 @@ else:
                     now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
                     items = ", ".join([f"{name}(x{count})" for name, count in counts.items()])
 
-                    # === Save Order & Update Session State ===
                     status = save_order({"เวลา": now_str, "โต๊ะ": table_no, "ลูกค้า": cust_name, "รายการอาหาร": items,
                                          "ยอดรวม": total_price, "หมายเหตุ": note, "สถานะ": "waiting"})
 
-                    # Remember User
                     st.session_state.user_table = table_no
                     st.session_state.user_name = cust_name
 
@@ -979,13 +987,11 @@ else:
                     send_email_notification(f"{body_intro}: {table_no}", body)
 
                     st.session_state.basket = []
-                    st.session_state.page = 'menu'
+                    navigate_to('customer', 'menu')
                     st.balloons()
                     st.success("ส่งออเดอร์แล้ว!")
                     time.sleep(2)
-                    st.rerun()
         else:
             st.info("ตะกร้ายังว่างอยู่เลย เลือกอาหารก่อนนะครับ")
             if st.button("ไปเลือกอาหาร"):
-                st.session_state.page = 'menu'
-                st.rerun()
+                navigate_to('customer', 'menu')
