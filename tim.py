@@ -19,12 +19,17 @@ RECEIVER_EMAIL = 'jaskaikai4@gmail.com'
 ORDER_CSV = 'order_history.csv'
 MENU_CSV = 'menu_data.csv'
 TABLES_CSV = 'tables_data.csv'
-CONTACT_CSV = 'contact_data.csv'  # ไฟล์เก็บข้อมูลติดต่อ
+CONTACT_CSV = 'contact_data.csv'
+QUEUE_CSV = 'queue_data.csv'
+FEEDBACK_CSV = 'feedback_data.csv'
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
+# สร้างโฟลเดอร์
 if not os.path.exists(IMAGE_FOLDER): os.makedirs(IMAGE_FOLDER)
 if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
+
+KITCHEN_LIMIT = 10
 
 
 # ================= 2. ฟังก์ชันจัดการข้อมูล =================
@@ -73,23 +78,16 @@ def load_orders():
     return pd.read_csv(ORDER_CSV)
 
 
-# --- ฟังก์ชันโหลด/บันทึก ข้อมูลติดต่อ (สำคัญมาก) ---
 def load_contacts():
     if not os.path.exists(CONTACT_CSV):
-        # ค่าเริ่มต้น
-        data = {
-            "phone": "064-448-55549",
-            "line": "@timnoishabu",
-            "facebook": "https://www.facebook.com/timnoishabu",
-            "instagram": "https://www.instagram.com/timnoishabu"
-        }
+        data = {"phone": "064-448-55549", "line": "@timnoishabu", "facebook": "https://www.facebook.com",
+                "instagram": "https://www.instagram.com"}
         df = pd.DataFrame([data])
         df.to_csv(CONTACT_CSV, index=False)
         return data
     else:
         try:
-            df = pd.read_csv(CONTACT_CSV)
-            return df.iloc[0].to_dict()
+            return pd.read_csv(CONTACT_CSV).iloc[0].to_dict()
         except:
             return {"phone": "", "line": "", "facebook": "", "instagram": ""}
 
@@ -99,14 +97,72 @@ def save_contacts(data_dict):
     df.to_csv(CONTACT_CSV, index=False)
 
 
+def load_queue():
+    if not os.path.exists(QUEUE_CSV):
+        df = pd.DataFrame(columns=["queue_id", "customer_name", "timestamp"])
+        df.to_csv(QUEUE_CSV, index=False)
+        return df
+    return pd.read_csv(QUEUE_CSV)
+
+
+def add_to_queue(name):
+    df = load_queue()
+    if not df.empty and name in df['customer_name'].values:
+        existing_id = df[df['customer_name'] == name].iloc[0]['queue_id']
+        return existing_id, True
+    last_id = 100
+    if not df.empty:
+        try:
+            last_id = int(df.iloc[-1]['queue_id'].split('-')[1])
+        except:
+            pass
+    new_id = f"Q-{last_id + 1}"
+    new_data = {"queue_id": new_id, "customer_name": name, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
+    df.to_csv(QUEUE_CSV, index=False)
+    return new_id, False
+
+
+def pop_queue():
+    df = load_queue()
+    if not df.empty:
+        df = df.iloc[1:]
+        df.to_csv(QUEUE_CSV, index=False)
+
+
+# --- ระบบ Feedback ---
+def load_feedback():
+    if not os.path.exists(FEEDBACK_CSV):
+        df = pd.DataFrame(columns=["timestamp", "customer_name", "message"])
+        df.to_csv(FEEDBACK_CSV, index=False)
+        return df
+    return pd.read_csv(FEEDBACK_CSV)
+
+
+def save_feedback_entry(name, message):
+    df = load_feedback()
+    new_entry = {
+        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "customer_name": name,
+        "message": message
+    }
+    df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
+    df.to_csv(FEEDBACK_CSV, index=False)
+
+
+def delete_feedback_entry(index):
+    df = load_feedback()
+    df = df.drop(index)
+    df.to_csv(FEEDBACK_CSV, index=False)
+
+
 def save_image(uploaded_file):
     if uploaded_file is not None:
         timestamp = int(time.time())
         file_ext = uploaded_file.name.split('.')[-1]
         new_filename = f"img_{timestamp}.{file_ext}"
         file_path = os.path.join(IMAGE_FOLDER, new_filename)
-        with open(file_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
         return file_path
     return None
 
@@ -121,8 +177,7 @@ def save_promo_banner(uploaded_file, index):
     if uploaded_file is not None:
         filename = f"banner_{index}.png"
         filepath = os.path.join(BANNER_FOLDER, filename)
-        with open(filepath, "wb") as f:
-            f.write(uploaded_file.getbuffer())
+        with open(filepath, "wb") as f: f.write(uploaded_file.getbuffer())
         return True
     return False
 
@@ -147,6 +202,8 @@ def send_email_notification(subject, body):
 def save_order(data):
     df = load_orders()
     mask = (df['โต๊ะ'] == data['โต๊ะ']) & (df['สถานะ'] == 'waiting')
+    status_result = "new"
+
     if mask.any():
         index_to_update = df.index[mask][0]
         old_items = str(df.at[index_to_update, 'รายการอาหาร'])
@@ -162,14 +219,22 @@ def save_order(data):
         df.at[index_to_update, 'หมายเหตุ'] = final_note
         df.at[index_to_update, 'เวลา'] = data['เวลา']
         df.to_csv(ORDER_CSV, index=False)
-        return "merged"
+        status_result = "merged"
     else:
         df_new = pd.DataFrame([data])
         if not os.path.exists(ORDER_CSV):
             df_new.to_csv(ORDER_CSV, index=False)
         else:
             df_new.to_csv(ORDER_CSV, mode='a', header=False, index=False)
-        return "new"
+        status_result = "new"
+
+    if 'my_queue_id' in st.session_state and st.session_state.my_queue_id:
+        queue_df = load_queue()
+        if not queue_df.empty and queue_df.iloc[0]['queue_id'] == st.session_state.my_queue_id:
+            pop_queue()
+            st.session_state.my_queue_id = None
+
+    return status_result
 
 
 def get_thai_time():
@@ -177,12 +242,10 @@ def get_thai_time():
     return datetime.now(tz)
 
 
-# ฟังก์ชันช่วยแปลงลิ้งค์ให้ถูกต้อง (เติม https:// อัตโนมัติ ป้องกันลิ้งค์เสีย)
 def sanitize_link(link):
     if not link: return "#"
     link = str(link).strip()
-    if link.startswith("http://") or link.startswith("https://"):
-        return link
+    if link.startswith("http://") or link.startswith("https://"): return link
     return "https://" + link
 
 
@@ -201,6 +264,7 @@ st.markdown("""
     .queue-title { font-size: 18px; font-weight: bold; color: #FFECB3; text-transform: uppercase; }
     .queue-big-number { font-size: 56px; font-weight: 800; line-height: 1; color: white; margin: 10px 0; }
     .queue-empty { background-color: #E8F5E9; border: 2px dashed #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
+    .queue-full { background-color: #FFEBEE; border: 2px dashed #EF5350; color: #C62828; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
 
     .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
     .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
@@ -208,48 +272,56 @@ st.markdown("""
     .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
     h1, h2, h3 { color: #3E2723 !important; }
 
-    /* สไตล์ปุ่มติดต่อ (Contact Row) */
-    .contact-row {
-        display: flex;
-        align-items: center;
-        margin-bottom: 12px;
-        background-color: white;
-        padding: 12px;
-        border-radius: 12px;
-        border: 1px solid #eee;
-        transition: all 0.2s;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-    }
-    .contact-row:hover { 
-        transform: translateY(-2px); 
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        border-color: #8D6E63;
-    }
+    .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .contact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #8D6E63; }
     .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
-    .contact-link { 
-        text-decoration: none; 
-        color: #333; 
-        font-weight: bold; 
-        font-size: 16px; 
-        flex-grow: 1;
-    }
+    .contact-link { text-decoration: none; color: #333; font-weight: bold; font-size: 16px; flex-grow: 1; }
 </style>
 """, unsafe_allow_html=True)
 
-# ================= 4. โหลดข้อมูล =================
+# ================= 4. โหลดข้อมูล & State =================
 if 'basket' not in st.session_state: st.session_state.basket = []
 if 'page' not in st.session_state: st.session_state.page = 'menu'
 if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
 if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
+if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
 
 menu_df = load_menu()
 tables_df = load_tables()
 orders_df = load_orders()
-contact_info = load_contacts()  # โหลดข้อมูลติดต่อจากไฟล์
-waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
-queue_count = len(waiting_orders)
+contact_info = load_contacts()
+queue_df = load_queue()
+feedback_df = load_feedback()
 
-# ================= 5. ส่วนหัวและเมนู =================
+waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
+kitchen_load = len(waiting_orders)
+
+is_queue_mode = False
+can_order = True
+waiting_q_count = 0
+
+if kitchen_load >= KITCHEN_LIMIT:
+    is_queue_mode = True
+    can_order = False
+
+if not queue_df.empty:
+    is_queue_mode = True
+    can_order = False
+
+    if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
+        if kitchen_load < KITCHEN_LIMIT:
+            can_order = True
+        else:
+            can_order = False
+
+    if st.session_state.my_queue_id:
+        try:
+            my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
+            waiting_q_count = my_idx
+        except:
+            waiting_q_count = len(queue_df)
+
+        # ================= 5. ส่วนหัวและเมนู =================
 c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
 
 with c_logo:
@@ -277,40 +349,28 @@ with c_menu:
         if st.button("🏠 หน้าลูกค้า", use_container_width=True):
             st.session_state.app_mode = 'customer'
             st.rerun()
+        if st.button("💬 เขียนติชม/สมุดเยี่ยม", use_container_width=True):
+            st.session_state.app_mode = 'customer'
+            st.session_state.page = 'feedback'
+            st.rerun()
         if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
             st.session_state.app_mode = 'admin_login'
             st.rerun()
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
 
-        # === CONTACT SECTION (ดึงข้อมูลจริงจาก Admin มาแสดง) ===
         st.markdown("---")
         st.markdown("### 📞 ช่องทางติดต่อ")
-
-        # แปลงลิ้งค์ให้ถูกต้อง (เติม https:// ถ้าไม่มี)
         fb_url = sanitize_link(contact_info.get('facebook', ''))
         ig_url = sanitize_link(contact_info.get('instagram', ''))
         line_id = contact_info.get('line', '-')
-
-        # ไอคอน (ใช้ URL ที่เสถียร)
         fb_icon = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png"
         ig_icon = "https://cdn-icons-png.flaticon.com/512/3955/3955024.png"
         line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
-
-        # แสดงปุ่มกด (คลิกแล้วเด้งไปแอพ)
         st.markdown(f"""
-        <div class="contact-row">
-            <img src="{fb_icon}" class="contact-icon">
-            <a href="{fb_url}" target="_blank" class="contact-link">Facebook</a>
-        </div>
-        <div class="contact-row">
-            <img src="{ig_icon}" class="contact-icon">
-            <a href="{ig_url}" target="_blank" class="contact-link">Instagram</a>
-        </div>
-        <div class="contact-row">
-            <img src="{line_icon}" class="contact-icon">
-            <span class="contact-link" style="color:#555;">Line: {line_id}</span>
-        </div>
+        <div class="contact-row"><img src="{fb_icon}" class="contact-icon"><a href="{fb_url}" target="_blank" class="contact-link">Facebook</a></div>
+        <div class="contact-row"><img src="{ig_icon}" class="contact-icon"><a href="{ig_url}" target="_blank" class="contact-link">Instagram</a></div>
+        <div class="contact-row"><img src="{line_icon}" class="contact-icon"><span class="contact-link" style="color:#555;">Line: {line_id}</span></div>
         """, unsafe_allow_html=True)
 
 st.markdown("---")
@@ -343,13 +403,14 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ติดต่อ"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+        ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ติดต่อ", "💬 อ่านรีวิว"])
 
     with tab1:
-        st.info(f"🔥 โต๊ะที่กำลังทานอยู่: {queue_count} โต๊ะ")
+        st.markdown(f"#### 🔥 สถานะครัว: {kitchen_load}/{KITCHEN_LIMIT} ออเดอร์")
+        st.progress(min(kitchen_load / KITCHEN_LIMIT, 1.0))
         if st.button("🔄 รีเฟรชออเดอร์"): st.rerun()
-        if queue_count > 0:
+        if kitchen_load > 0:
             for index, row in waiting_orders.iterrows():
                 with st.container(border=True):
                     c1, c2 = st.columns([3, 1])
@@ -459,27 +520,35 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.warning("ยังไม่มีข้อมูลยอดขาย")
 
-    with tab6:  # === หน้าจัดการ Contact (NEW) ===
+    with tab6:
         st.subheader("📞 จัดการลิ้งค์และเบอร์โทร")
-        st.info("ใส่ลิ้งค์เพจ หรือเบอร์โทรที่ต้องการ แล้วกดบันทึก (ไม่ต้องใส่ https:// ก็ได้ ระบบเติมให้เอง)")
-
         with st.form("contact_form"):
             new_phone = st.text_input("📞 เบอร์โทรศัพท์", value=contact_info.get('phone', ''))
             new_line = st.text_input("💬 Line ID", value=contact_info.get('line', ''))
             new_fb = st.text_input("🔵 Facebook Link (URL)", value=contact_info.get('facebook', ''))
             new_ig = st.text_input("🟣 Instagram Link (URL)", value=contact_info.get('instagram', ''))
-
             if st.form_submit_button("💾 บันทึกข้อมูลติดต่อ"):
-                new_data = {
-                    "phone": new_phone,
-                    "line": new_line,
-                    "facebook": new_fb,
-                    "instagram": new_ig
-                }
+                new_data = {"phone": new_phone, "line": new_line, "facebook": new_fb, "instagram": new_ig}
                 save_contacts(new_data)
-                st.success("บันทึกเรียบร้อย! ข้อมูลหน้าเว็บอัปเดตแล้วครับ ✅")
+                st.success("บันทึกเรียบร้อย!")
                 time.sleep(1)
                 st.rerun()
+
+    with tab7:
+        st.subheader("💬 ข้อความติชมจากลูกค้า")
+        if not feedback_df.empty:
+            for index, row in feedback_df.iterrows():
+                with st.container(border=True):
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        st.markdown(f"**{row['customer_name']}** ({row['timestamp']})")
+                        st.write(f"📝 {row['message']}")
+                    with c2:
+                        if st.button("🗑️ ลบ", key=f"del_fb_{index}", type="primary"):
+                            delete_feedback_entry(index)
+                            st.rerun()
+        else:
+            st.info("ยังไม่มีรีวิวครับ")
 
 # === Customer Page ===
 else:
@@ -493,55 +562,55 @@ else:
         slides_html = ""
         for idx, img_b64 in enumerate(banner_images):
             display_style = "block" if idx == 0 else "none"
-            slides_html += f"""
-            <div class="mySlides fade" style="display: {display_style};">
-              <img src="{img_b64}" style="width:100%; border-radius:15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
-            </div>
-            """
+            slides_html += f"""<div class="mySlides fade" style="display: {display_style};"><img src="{img_b64}" style="width:100%; border-radius:15px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);"></div>"""
+
+        # === แก้ไขเวลาเป็น 8000 (8 วินาที) ===
         components.html(f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-        <style>
-        .mySlides {{display: none;}}
-        img {{vertical-align: middle;}}
-        .fade {{-webkit-animation-name: fade; -webkit-animation-duration: 1.5s; animation-name: fade; animation-duration: 1.5s;}}
-        @-webkit-keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}
-        @keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}
-        </style>
-        </head>
-        <body>
-        <div class="slideshow-container">{slides_html}</div>
-        <script>
-        let slideIndex = 0;
-        showSlides();
-        function showSlides() {{
-          let i;
-          let slides = document.getElementsByClassName("mySlides");
-          for (i = 0; i < slides.length; i++) {{slides[i].style.display = "none";}}
-          slideIndex++;
-          if (slideIndex > slides.length) {{slideIndex = 1}}    
-          slides[slideIndex-1].style.display = "block";  
-          setTimeout(showSlides, 5000); 
-        }}
-        </script>
-        </body>
-        </html>
+        <!DOCTYPE html><html><head><style>.mySlides {{display: none;}}img {{vertical-align: middle;}}.fade {{-webkit-animation-name: fade; -webkit-animation-duration: 1.5s; animation-name: fade; animation-duration: 1.5s;}}@-webkit-keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}@keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}</style></head><body><div class="slideshow-container">{slides_html}</div><script>let slideIndex = 0;showSlides();function showSlides() {{let i;let slides = document.getElementsByClassName("mySlides");for (i = 0; i < slides.length; i++) {{slides[i].style.display = "none";}}slideIndex++;if (slideIndex > slides.length) {{slideIndex = 1}}slides[slideIndex-1].style.display = "block";setTimeout(showSlides, 8000);}}</script></body></html>
         """, height=320)
 
-    if queue_count > 0:
-        st.markdown(f"""
-        <div class="customer-queue-box">
-            <div class="queue-title">🔥 คิวรออาหารตอนนี้</div>
-            <div class="queue-big-number">{queue_count}</div>
-            <div class="queue-desc">คิว</div>
-        </div>""", unsafe_allow_html=True)
+    if is_queue_mode:
+        if st.session_state.my_queue_id:
+            if can_order:
+                st.success(f"✅ ถึงคิวของคุณแล้ว! ({st.session_state.my_queue_id}) เชิญสั่งอาหารได้เลยครับ")
+            else:
+                st.markdown(f"""
+                <div class="customer-queue-box">
+                    <div class="queue-title">🎫 บัตรคิวของคุณ: {st.session_state.my_queue_id}</div>
+                    <div class="queue-desc">รออีก {waiting_q_count} คิว</div>
+                    <p style="margin-top:10px;">กรุณารอสักครู่... พนักงานกำลังเคลียร์ครัวครับ</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("🔄 เช็คสถานะคิวล่าสุด"): st.rerun()
+                st.stop()
+        else:
+            st.markdown(f"""
+            <div class="queue-full">
+                <h3>🚫 ครัวแน่นมาก ({kitchen_load} ออเดอร์)</h3>
+                <p>ขออภัยในความไม่สะดวก กรุณากดรับบัตรคิวเพื่อจองสิทธิ์สั่งอาหารครับ</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            c_name = st.text_input("ชื่อลูกค้า (สำหรับจองใหม่ หรือ เช็คคิวเดิม)")
+            if st.button("🎟️ กดรับบัตรคิว / กู้คืนคิวเดิม", type="primary", use_container_width=True):
+                if c_name:
+                    q_id, is_old = add_to_queue(c_name)
+                    st.session_state.my_queue_id = q_id
+                    if is_old:
+                        st.success(f"🎉 ยินดีต้อนรับกลับ! กู้คืนคิวเดิม: {q_id}")
+                    else:
+                        st.success(f"✅ จองคิวสำเร็จ! หมายเลขคิว: {q_id}")
+                    time.sleep(2)
+                    st.rerun()
+                else:
+                    st.error("กรุณาใส่ชื่อก่อนรับคิว")
+
+            col_ref1, col_ref2, col_ref3 = st.columns([1, 2, 1])
+            with col_ref2:
+                if st.button("🔄 รีเฟรชดูสถานะครัว"): st.rerun()
+            st.stop()
     else:
         st.markdown("""<div class="queue-empty">✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ</div>""", unsafe_allow_html=True)
-
-    col_ref1, col_ref2, col_ref3 = st.columns([1, 2, 1])
-    with col_ref2:
-        if st.button("🔄 เช็คคิวล่าสุด (Refresh)", use_container_width=True): st.rerun()
 
     st.markdown("---")
 
@@ -555,9 +624,30 @@ else:
         st.markdown("### 👤 ชื่อลูกค้า")
         cust_name = st.text_input("cust", "ลูกค้าทั่วไป", label_visibility="collapsed")
 
+    # === บังคับใส่ชื่อ ===
+    if not cust_name:
+        st.warning("🔒 กรุณาระบุชื่อของคุณ เพื่อเริ่มสั่งอาหารและจำคิวครับ")
+        st.stop()
+
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.session_state.page == 'menu':
+    if st.session_state.page == 'feedback':
+        st.button("⬅️ กลับไปหน้าสั่งอาหาร", on_click=lambda: st.session_state.update(page='menu'))
+        st.subheader("💬 เขียนติชม/สมุดเยี่ยม")
+        st.info("ทุกความคิดเห็นของท่าน มีค่าสำหรับเราครับ 😊")
+        with st.form("feed_form"):
+            f_msg = st.text_area("ข้อความติชม (Review)", height=150)
+            if st.form_submit_button("ส่งความคิดเห็น"):
+                if f_msg:
+                    save_feedback_entry(cust_name, f_msg)
+                    st.success("ขอบคุณสำหรับความคิดเห็นครับ! ❤️")
+                    time.sleep(1.5)
+                    st.session_state.page = 'menu'
+                    st.rerun()
+                else:
+                    st.error("กรุณาพิมพ์ข้อความก่อนส่งครับ")
+
+    elif st.session_state.page == 'menu':
         st.subheader("📝 รายการอาหาร")
         cols = st.columns(2)
         for idx, row in menu_df.iterrows():
@@ -646,22 +736,25 @@ else:
             note = st.text_area("📝 หมายเหตุถึงครัว (ไม่ใส่ผัก, เผ็ดน้อย)")
 
             if st.button("✅ ยืนยันการสั่ง (Confirm)", type="primary", use_container_width=True):
-                now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
-                items = ", ".join([f"{name}(x{count})" for name, count in counts.items()])
+                if is_queue_mode and not can_order:
+                    st.error("🚫 ยังไม่ถึงคิวของคุณครับ กรุณารอเรียกคิว")
+                else:
+                    now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
+                    items = ", ".join([f"{name}(x{count})" for name, count in counts.items()])
 
-                status = save_order({"เวลา": now_str, "โต๊ะ": table_no, "ลูกค้า": cust_name, "รายการอาหาร": items,
-                                     "ยอดรวม": total_price, "หมายเหตุ": note, "สถานะ": "waiting"})
+                    status = save_order({"เวลา": now_str, "โต๊ะ": table_no, "ลูกค้า": cust_name, "รายการอาหาร": items,
+                                         "ยอดรวม": total_price, "หมายเหตุ": note, "สถานะ": "waiting"})
 
-                body_intro = "🔔 Order เพิ่มเติม" if status == "merged" else "🔔 Order ใหม่"
-                body = f"โต๊ะ: {table_no}\nลูกค้า: {cust_name}\nเวลา: {now_str}\n\n{items}\n\nสั่งรอบนี้: {total_price} บาท\nNote: {note}"
-                send_email_notification(f"{body_intro}: {table_no}", body)
+                    body_intro = "🔔 Order เพิ่มเติม" if status == "merged" else "🔔 Order ใหม่"
+                    body = f"โต๊ะ: {table_no}\nลูกค้า: {cust_name}\nเวลา: {now_str}\n\n{items}\n\nสั่งรอบนี้: {total_price} บาท\nNote: {note}"
+                    send_email_notification(f"{body_intro}: {table_no}", body)
 
-                st.session_state.basket = []
-                st.session_state.page = 'menu'
-                st.balloons()
-                st.success("ส่งออเดอร์แล้ว!")
-                time.sleep(2)
-                st.rerun()
+                    st.session_state.basket = []
+                    st.session_state.page = 'menu'
+                    st.balloons()
+                    st.success("ส่งออเดอร์แล้ว!")
+                    time.sleep(2)
+                    st.rerun()
         else:
             st.info("ตะกร้ายังว่างอยู่เลย เลือกอาหารก่อนนะครับ")
             if st.button("ไปเลือกอาหาร"):
