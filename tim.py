@@ -301,16 +301,17 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- Feature: Auto Refresh (5 วินาที - เร็วขึ้นเพื่อให้เห็นสต็อกทันที) ---
+# --- Feature 1: Polling Script (ทุก 2 วินาที) ---
+# ทำหน้าที่กระตุ้นให้ Streamlit รัน script ใหม่ เพื่อเช็คการเปลี่ยนแปลง
 components.html(
     """
     <script>
-        setTimeout(function(){
-            window.parent.location.reload();
-        }, 5000);
+        setInterval(function(){
+            window.parent.document.querySelector(".stApp").dispatchEvent(new Event("change"));
+        }, 2000);
     </script>
     """,
-    height=0
+    height=0,
 )
 
 st.markdown("""
@@ -350,6 +351,17 @@ st.markdown("""
         animation: pulse 2s infinite;
         margin-bottom: 20px;
     }
+    .kitchen-status-box {
+        background-color: #E8F5E9; 
+        border: 2px solid #4CAF50; 
+        color: #2E7D32; 
+        padding: 15px; 
+        border-radius: 12px; 
+        text-align: center; 
+        font-weight: bold; 
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -361,6 +373,20 @@ if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass =
 if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
 if 'user_table' not in st.session_state: st.session_state.user_table = None
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
+
+# --- Feature 1 (Logic): ตรวจจับการเปลี่ยนแปลงของไฟล์ Menu ---
+if 'menu_mtime' not in st.session_state:
+    st.session_state.menu_mtime = 0
+
+if os.path.exists(MENU_CSV):
+    current_mtime = os.path.getmtime(MENU_CSV)
+    if st.session_state.menu_mtime != 0 and current_mtime != st.session_state.menu_mtime:
+        st.session_state.menu_mtime = current_mtime
+        st.toast("📢 มีการอัปเดตรายการอาหาร/สต็อก!")
+        time.sleep(1)
+        st.rerun()  # รีเฟรชทันทีเมื่อไฟล์เปลี่ยน
+    else:
+        st.session_state.menu_mtime = current_mtime
 
 daily_cleanup()
 
@@ -708,18 +734,21 @@ else:
                 if st.button("🔄 รีเฟรชดูสถานะครัว"): st.rerun()
             st.stop()
     else:
-        # --- Feature: แสดงคิวที่กำลังทำ (Top Queue Only) ---
+        # --- Feature 3: แสดงคิวที่กำลังทำ (Top Queue Only) ---
         if not waiting_orders.empty:
-            # ดึงออเดอร์บนสุดมาแสดงแค่อันเดียว
+            # ดึงออเดอร์บนสุดมาแสดงแค่อันเดียว (คิวที่ 1)
             top_order = waiting_orders.iloc[0]
             st.markdown(f"""
-            <div style="background-color:#E8F5E9; border: 2px solid #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; margin-bottom: 20px;">
-                ✅ ครัวกำลังปรุง: โต๊ะ {top_order['โต๊ะ']} (คุณ{top_order['ลูกค้า']}) <br>
+            <div class="kitchen-status-box">
+                ✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ <br>
+                <hr style="margin: 10px 0; border-top: 1px dashed #4CAF50;">
+                👨‍🍳 กำลังปรุง: โต๊ะ {top_order['โต๊ะ']} (คุณ{top_order['ลูกค้า']}) <br>
                 <span style="font-size:0.9em; color:#555;">(คิวถัดไปจะแสดงเมื่อคิวนี้เสร็จสิ้น)</span>
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.markdown("""<div class="queue-empty">✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ</div>""", unsafe_allow_html=True)
+            st.markdown("""<div class="kitchen-status-box">✅ ครัวว่าง! สั่งปุ๊บ ได้ทานปั๊บ</div>""",
+                        unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -751,8 +780,12 @@ else:
 
         table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed")
 
-        # --- Feature: แสดงจำนวนโต๊ะว่าง ---
-        st.caption(f"🟢 เหลือโต๊ะว่าง: {len(available_tables)} โต๊ะ")
+        # --- Feature 2: แสดงจำนวนโต๊ะว่าง ---
+        remaining_count = len(all_tables) - len(busy_tables)
+        if remaining_count < 0: remaining_count = 0
+
+        st.markdown(f"<span style='color:green; font-weight:bold;'>🟢 เหลือโต๊ะว่าง: {remaining_count} โต๊ะ</span>",
+                    unsafe_allow_html=True)
 
         if st.session_state.user_table and table_no == st.session_state.user_table:
             st.success(f"👋 ยินดีต้อนรับกลับ! รายการเดิมอยู่ที่: {table_no}")
