@@ -39,6 +39,16 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
+# หมวดหมู่ใหม่ (ไทย + อังกฤษ)
+CATEGORIES = [
+    "เนื้อสัตว์ (Meat)",
+    "ทะเล (Seafood)",
+    "ผัก (Veggie)",
+    "ของทานเล่น (Snack)",
+    "น้ำซุป (Soup)",
+    "เครื่องดื่ม (Drinks)"
+]
+
 
 # ================= 2. ฟังก์ชันจัดการข้อมูล =================
 
@@ -82,19 +92,20 @@ def daily_cleanup():
 
 def load_menu():
     if not os.path.exists(MENU_CSV):
+        # Default Data Updated with New Categories
         default_data = [
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
-             "category": "Meat", "in_stock": True},
-            {"name": "หมูสามชั้น", "price": 89,
-             "img": "https://images.unsplash.com/photo-1600891964092-4316c288032e?auto=format&fit=crop&w=500&q=60",
-             "category": "Meat", "in_stock": True},
+             "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
             {"name": "กุ้งสด", "price": 150,
              "img": "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=500&q=60",
-             "category": "Seafood", "in_stock": True},
-            {"name": "ผักกวางตุ้ง", "price": 40,
-             "img": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=60",
-             "category": "Veggie", "in_stock": True},
+             "category": "ทะเล (Seafood)", "in_stock": True},
+            {"name": "น้ำซุปต้มยำ", "price": 0,
+             "img": "https://images.unsplash.com/photo-1546272989-40c92939c6c2?auto=format&fit=crop&w=500&q=60",
+             "category": "น้ำซุป (Soup)", "in_stock": True},
+            {"name": "น้ำซุปน้ำดำ", "price": 0,
+             "img": "https://images.unsplash.com/photo-1594970425029-797746816432?auto=format&fit=crop&w=500&q=60",
+             "category": "น้ำซุป (Soup)", "in_stock": True},
         ]
         df = pd.DataFrame(default_data)
         df.to_csv(MENU_CSV, index=False)
@@ -301,7 +312,7 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- Feature 1: Polling Script (ทุก 2 วินาที) ---
+# --- Feature: Polling Script (ทุก 2 วินาที) ---
 # ทำหน้าที่กระตุ้นให้ Streamlit รัน script ใหม่ เพื่อเช็คการเปลี่ยนแปลง
 components.html(
     """
@@ -328,7 +339,23 @@ st.markdown("""
     .queue-full { background-color: #FFEBEE; border: 2px dashed #EF5350; color: #C62828; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
     .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
     .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
-    .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
+
+    /* Out of Stock Style */
+    .out-of-stock-img { 
+        filter: grayscale(100%); 
+        opacity: 0.5; 
+        transition: all 0.3s ease;
+    }
+    .out-of-stock-label {
+        color: red; 
+        font-weight: bold; 
+        text-align: center; 
+        margin-top: -30px; 
+        margin-bottom: 10px; 
+        background: rgba(255,255,255,0.8);
+        border-radius: 5px;
+    }
+
     h1, h2, h3 { color: #3E2723 !important; }
     .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .contact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #8D6E63; }
@@ -374,7 +401,7 @@ if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
 if 'user_table' not in st.session_state: st.session_state.user_table = None
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 
-# --- Feature 1 (Logic): ตรวจจับการเปลี่ยนแปลงของไฟล์ Menu ---
+# --- Feature (Logic): ตรวจจับการเปลี่ยนแปลงของไฟล์ Menu ---
 if 'menu_mtime' not in st.session_state:
     st.session_state.menu_mtime = 0
 
@@ -384,7 +411,7 @@ if os.path.exists(MENU_CSV):
         st.session_state.menu_mtime = current_mtime
         st.toast("📢 มีการอัปเดตรายการอาหาร/สต็อก!")
         time.sleep(1)
-        st.rerun()  # รีเฟรชทันทีเมื่อไฟล์เปลี่ยน
+        st.rerun()  # รีเฟรชทันทีเมื่อไฟล์เปลี่ยน (ข้อมูล Input ไม่หายเพราะอยู่ใน Session State)
     else:
         st.session_state.menu_mtime = current_mtime
 
@@ -604,7 +631,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         with st.form("add_m"):
             n = st.text_input("ชื่อเมนู")
             p = st.number_input("ราคา", min_value=0)
-            c = st.selectbox("หมวด", ["Meat", "Seafood", "Veggie", "Snack"])
+            c = st.selectbox("หมวด", CATEGORIES)
             uploaded_file = st.file_uploader("อัปโหลดรูปจากเครื่อง", type=['png', 'jpg', 'jpeg'])
             img_url_input = st.text_input("หรือใส่ URL รูปภาพ", "https://placehold.co/400")
             if st.form_submit_button("บันทึกเมนู"):
@@ -715,7 +742,7 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-            c_name = st.text_input("ชื่อลูกค้า (สำหรับจองใหม่ หรือ เช็คคิวเดิม)")
+            c_name = st.text_input("ชื่อลูกค้า (สำหรับจองใหม่ หรือ เช็คคิวเดิม)", key="q_name")
             if st.button("🎟️ กดรับบัตรคิว / กู้คืนคิวเดิม", type="primary", use_container_width=True):
                 if c_name:
                     q_id, is_old = add_to_queue(c_name)
@@ -756,7 +783,9 @@ else:
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
         def_name = st.session_state.user_name if st.session_state.user_name else ""
-        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
+        # --- State Persistence: Use key to retain value on refresh ---
+        cust_name = st.text_input("cust", def_name, placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed",
+                                  key="customer_name_input")
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
         if cust_name:
@@ -778,7 +807,9 @@ else:
         if st.session_state.user_table in tbl_options:
             default_idx = tbl_options.index(st.session_state.user_table)
 
-        table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed")
+        # --- State Persistence: Use key to retain value on refresh ---
+        table_no = st.selectbox("table", tbl_options, index=default_idx, label_visibility="collapsed",
+                                key="table_select_box")
 
         # --- Feature 2: แสดงจำนวนโต๊ะว่าง ---
         remaining_count = len(all_tables) - len(busy_tables)
@@ -837,18 +868,29 @@ else:
                 with st.container(border=True):
                     is_stock = row.get('in_stock', True)
                     img_src = str(row['img'])
-                    try:
-                        if is_stock:
+
+                    # --- Stock Visuals ---
+                    if not is_stock:
+                        # Grayscale + Out of Stock Label
+                        try:
+                            st.markdown(f"""
+                            <div style="position:relative;">
+                                <img src="{img_src}" style="width:100%; border-radius:8px; filter: grayscale(100%); opacity: 0.5;">
+                                <div style="position:absolute; top:50%; left:50%; transform: translate(-50%, -50%); 
+                                            background:rgba(255,255,255,0.9); padding:5px 15px; border-radius:5px; 
+                                            color:red; font-weight:bold; border:2px solid red;">
+                                    ❌ สินค้าหมด
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        except:
+                            st.image("https://placehold.co/400")
+                    else:
+                        try:
                             st.image(img_src, use_container_width=True)
-                        else:
-                            st.markdown(
-                                f'<div style="opacity:0.5;filter:grayscale(100%);"><img src="{img_src}" style="width:100%;border-radius:8px;"></div>',
-                                unsafe_allow_html=True)
-                            st.markdown(
-                                "<div style='text-align:center;color:red;font-weight:bold;margin-top:-60px;margin-bottom:40px;'>❌ หมด</div>",
-                                unsafe_allow_html=True)
-                    except:
-                        st.image("https://placehold.co/400")
+                        except:
+                            st.image("https://placehold.co/400")
+
                     st.markdown(f"**{row['name']}**")
                     if is_stock:
                         st.caption(f"{row['price']}.-")
