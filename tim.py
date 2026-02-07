@@ -186,22 +186,22 @@ orders_df = load_orders()
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 queue_count = len(waiting_orders)
 
-# ================= 5. ส่วนหัวและเมนู (ปรับโลโก้ใหญ่ 397px) =================
-# ขยายช่องแรกให้กว้างขึ้นอีก (1.7) เพื่อให้ใส่รูป 397px ได้สบายๆ
-c_logo, c_name, c_menu = st.columns([1.7, 2, 0.5])
+# ================= 5. ส่วนหัวและเมนู (ปรับโลโก้ 320px) =================
+# ปรับสัดส่วนคอลัมน์ให้พอดีกับรูป 320px
+c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
 
 with c_logo:
     if os.path.exists("logo.png"):
-        # แก้ขนาดตรงนี้เป็น 397 ตามที่ขอครับ
-        st.image("logo.png", width=397)
+        # แก้ขนาดตรงนี้เป็น 320px ครับ
+        st.image("logo.png", width=320)
     else:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
 
 with c_name:
-    # ปรับความสูง Flexbox ให้รองรับรูปใหญ่ (397px จะสูงประมาณ 250-300px ได้)
+    # ปรับตำแหน่งตัวหนังสือให้กึ่งกลางรูป
     st.markdown("""
-        <div style="display: flex; align-items: center; height: 250px;">
-            <h1 style='color:#3E2723; font-size:65px; margin:0; line-height:1;'>Timnoi</h1>
+        <div style="display: flex; align-items: center; height: 200px;">
+            <h1 style='color:#3E2723; font-size:55px; margin:0; line-height:1;'>Timnoi</h1>
         </div>
     """, unsafe_allow_html=True)
 
@@ -345,15 +345,19 @@ elif st.session_state.app_mode == 'admin_dashboard':
             menu_df.to_csv(MENU_CSV, index=False)
             st.rerun()
 
-    with tab5:  # สรุปยอดขาย
+    with tab5:  # แก้ไข Error ตรงนี้ครับ
         st.subheader("📊 สรุปยอดขายรายวัน")
         today_str = get_thai_time().strftime("%d/%m/%Y")
         st.caption(f"ประจำวันที่: {today_str}")
         if 'สถานะ' in orders_df.columns:
+            # === แก้ไขจุดที่ Error (Force Convert to Numeric) ===
+            # แปลงยอดรวมให้เป็นตัวเลขก่อนคำนวณ (ถ้าแปลงไม่ได้ให้เป็น 0)
             orders_df['ยอดรวม'] = pd.to_numeric(orders_df['ยอดรวม'], errors='coerce').fillna(0)
+
             daily_sales = orders_df[
                 (orders_df['สถานะ'] == 'paid') & (orders_df['เวลา'].astype(str).str.contains(today_str))]
             total_revenue = daily_sales['ยอดรวม'].sum()
+
             st.markdown(
                 f"""<div class="sales-box"><div>ยอดขายรวมวันนี้</div><div class="sales-number">{total_revenue:,.2f} ฿</div><div>จำนวน {len(daily_sales)} บิล</div></div>""",
                 unsafe_allow_html=True)
