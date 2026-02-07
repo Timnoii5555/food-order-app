@@ -19,6 +19,7 @@ RECEIVER_EMAIL = 'jaskaikai4@gmail.com'
 ORDER_CSV = 'order_history.csv'
 MENU_CSV = 'menu_data.csv'
 TABLES_CSV = 'tables_data.csv'
+CONTACT_CSV = 'contact_data.csv'  # <--- ไฟล์เก็บข้อมูลติดต่อ
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
@@ -70,6 +71,32 @@ def load_orders():
         df.to_csv(ORDER_CSV, index=False)
         return df
     return pd.read_csv(ORDER_CSV)
+
+
+# --- ฟังก์ชันโหลด/บันทึก ข้อมูลติดต่อ (NEW) ---
+def load_contacts():
+    if not os.path.exists(CONTACT_CSV):
+        # ค่าเริ่มต้น (ถ้ายังไม่ได้แก้)
+        data = {
+            "phone": "064-448-55549",
+            "line": "@timnoishabu",
+            "facebook": "https://www.facebook.com",
+            "instagram": "https://www.instagram.com"
+        }
+        df = pd.DataFrame([data])
+        df.to_csv(CONTACT_CSV, index=False)
+        return data
+    else:
+        try:
+            df = pd.read_csv(CONTACT_CSV)
+            return df.iloc[0].to_dict()
+        except:
+            return {"phone": "", "line": "", "facebook": "", "instagram": ""}
+
+
+def save_contacts(data_dict):
+    df = pd.DataFrame([data_dict])
+    df.to_csv(CONTACT_CSV, index=False)
 
 
 def save_image(uploaded_file):
@@ -151,7 +178,7 @@ def get_thai_time():
 
 
 # ================= 3. UI & CSS =================
-st.set_page_config(page_title="Timnoi Shabu", page_icon="🍲", layout="wide")
+st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
 st.markdown("""
 <style>
@@ -171,6 +198,12 @@ st.markdown("""
 
     .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
     h1, h2, h3 { color: #3E2723 !important; }
+
+    /* Contact Icon Style */
+    .contact-row { display: flex; align-items: center; margin-bottom: 10px; }
+    .contact-icon { width: 24px; height: 24px; margin-right: 10px; }
+    .contact-link { text-decoration: none; color: #3E2723; font-weight: bold; font-size: 16px; }
+    .contact-link:hover { color: #ea2a33; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -183,11 +216,11 @@ if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass =
 menu_df = load_menu()
 tables_df = load_tables()
 orders_df = load_orders()
+contact_info = load_contacts()  # โหลดข้อมูลติดต่อ
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 queue_count = len(waiting_orders)
 
-# ================= 5. ส่วนหัวและเมนู (Full Header with Updated Text) =================
-# จัด Layout ใหม่ให้โลโก้ 320px อยู่ซ้าย และข้อความอยู่ขวาแบบเต็มๆ
+# ================= 5. ส่วนหัวและเมนู =================
 c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
 
 with c_logo:
@@ -197,14 +230,13 @@ with c_logo:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
 
 with c_name:
-    # --- อัปเดตข้อความตรงนี้ตามที่ขอครับ ---
-    st.markdown("""
+    st.markdown(f"""
         <div style="display: flex; flex-direction: column; justify-content: center; height: 220px;">
-            <h1 style='color:#3E2723; font-size:60px; margin:0; line-height:1; font-weight:800;'>Timnoi</h1>
+            <h1 style='color:#3E2723; font-size:50px; margin:0; line-height:1; font-weight:800;'>TimNoi Shabu</h1>
             <p style='color:#8D6E63; font-size:20px; margin:5px 0 0 0; font-weight:bold;'>ร้านนี้ไม่มีหมูเพราะที่เห็นเป็นเนื้อหมา</p>
             <div style='margin-top:15px; border-top: 2px solid #D7CCC8; padding-top:10px;'>
                 <p style='color:#5D4037; font-size:16px; margin:0;'>🕒 เปิดบริการ: 00:00 - 23:59 น.</p>
-                <p style='color:#5D4037; font-size:16px; margin:0;'>📞 โทร: 064-448-55549</p>
+                <p style='color:#5D4037; font-size:16px; margin:0;'>📞 โทร: {contact_info.get('phone', '-')}</p>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -221,6 +253,31 @@ with c_menu:
             st.rerun()
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
+
+        # === แสดงช่องทางติดต่อ (พร้อมไอคอน) ===
+        st.markdown("---")
+        st.markdown("### 📞 ช่องทางติดต่อ")
+
+        # ไอคอน Online (ใช้ URL ตรงเพื่อให้ชัวร์)
+        fb_icon = "https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg"
+        ig_icon = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
+        line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
+
+        # แสดงผลแบบ HTML
+        st.markdown(f"""
+        <div class="contact-row">
+            <img src="{fb_icon}" class="contact-icon">
+            <a href="{contact_info.get('facebook', '#')}" target="_blank" class="contact-link">Facebook</a>
+        </div>
+        <div class="contact-row">
+            <img src="{ig_icon}" class="contact-icon">
+            <a href="{contact_info.get('instagram', '#')}" target="_blank" class="contact-link">Instagram</a>
+        </div>
+        <div class="contact-row">
+            <img src="{line_icon}" class="contact-icon">
+            <span class="contact-link">{contact_info.get('line', '-')}</span>
+        </div>
+        """, unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -252,7 +309,9 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["👨‍🍳 ครัว", "📢 โปรโมชั่น(5)", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย"])
+    # เพิ่ม Tab "📞 ข้อมูลติดต่อ"
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู", "📊 ยอดขาย", "📞 ข้อมูลติดต่อ"])
 
     with tab1:
         st.info(f"🔥 โต๊ะที่กำลังทานอยู่: {queue_count} โต๊ะ")
@@ -277,7 +336,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
             st.success("ไม่มีออเดอร์ค้าง")
 
     with tab2:
-        st.header("📢 แบนเนอร์โปรโมชั่น (สูงสุด 5 รูป)")
+        st.header("📢 แบนเนอร์โปรโมชั่น")
         for i in range(1, 6):
             col_b1, col_b2 = st.columns([2, 1])
             filename = f"banner_{i}.png"
@@ -349,7 +408,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
             menu_df.to_csv(MENU_CSV, index=False)
             st.rerun()
 
-    with tab5:  # สรุปยอดขาย
+    with tab5:
         st.subheader("📊 สรุปยอดขายรายวัน")
         today_str = get_thai_time().strftime("%d/%m/%Y")
         st.caption(f"ประจำวันที่: {today_str}")
@@ -366,6 +425,26 @@ elif st.session_state.app_mode == 'admin_dashboard':
                          use_container_width=True)
         else:
             st.warning("ยังไม่มีข้อมูลยอดขาย")
+
+    with tab6:  # === หน้าจัดการ Contact (NEW) ===
+        st.subheader("📞 จัดการข้อมูลติดต่อ")
+        with st.form("contact_form"):
+            new_phone = st.text_input("เบอร์โทรศัพท์", value=contact_info.get('phone', ''))
+            new_line = st.text_input("Line ID", value=contact_info.get('line', ''))
+            new_fb = st.text_input("Facebook Link (URL)", value=contact_info.get('facebook', ''))
+            new_ig = st.text_input("Instagram Link (URL)", value=contact_info.get('instagram', ''))
+
+            if st.form_submit_button("บันทึกข้อมูลติดต่อ"):
+                new_data = {
+                    "phone": new_phone,
+                    "line": new_line,
+                    "facebook": new_fb,
+                    "instagram": new_ig
+                }
+                save_contacts(new_data)
+                st.success("บันทึกเรียบร้อย! ✅")
+                time.sleep(1)
+                st.rerun()
 
 # === Customer Page ===
 else:
