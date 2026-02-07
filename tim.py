@@ -12,13 +12,11 @@ from collections import Counter
 import base64
 
 # ================= 1. ตั้งค่าระบบ (Configuration) =================
-# แนะนำ: ย้ายรหัสผ่านไปไว้ใน .streamlit/secrets.toml ในการใช้งานจริง
 try:
     SENDER_EMAIL = st.secrets["email"]["user"]
     SENDER_PASSWORD = st.secrets["email"]["password"]
     ADMIN_PASSWORD = st.secrets["admin"]["password"]
 except:
-    # Fallback กรณีไม่ได้ตั้ง secrets (สำหรับการทดสอบ)
     SENDER_EMAIL = 'jaskaikai4@gmail.com'
     SENDER_PASSWORD = 'zqyx nqdk ygww drpp'
     ADMIN_PASSWORD = '090090op'
@@ -35,14 +33,13 @@ FEEDBACK_CSV = 'feedback_data.csv'
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
-# สร้างโฟลเดอร์เก็บข้อมูล
 if not os.path.exists(IMAGE_FOLDER): os.makedirs(IMAGE_FOLDER)
 if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
 
-# ================= 2. ฟังก์ชันจัดการข้อมูล (Data Management) =================
+# ================= 2. ฟังก์ชันจัดการข้อมูล =================
 
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
@@ -50,55 +47,36 @@ def get_thai_time():
 
 
 def daily_cleanup():
-    """
-    ฟังก์ชันเคลียร์ค่าเมื่อขึ้นวันใหม่:
-    1. เปลี่ยนสถานะ 'waiting' ของเมื่อวาน ให้เป็น 'expired' (เพื่อเคลียร์ครัว แต่เก็บประวัติ)
-    2. ล้างไฟล์คิว (Queue) หากเป็นคิวของเมื่อวาน
-    """
     today_str = get_thai_time().strftime("%d/%m/%Y")
-
-    # --- 1. จัดการออเดอร์ค้าง ---
     if os.path.exists(ORDER_CSV):
         try:
             df = pd.read_csv(ORDER_CSV)
             if not df.empty and 'เวลา' in df.columns and 'สถานะ' in df.columns:
                 changed = False
                 for index, row in df.iterrows():
-                    # เช็คเฉพาะออเดอร์ที่ยังรออยู่ (waiting)
                     if row['สถานะ'] == 'waiting':
                         try:
-                            # ดึงวันที่จาก string เช่น "08/02/2026 10:30" -> "08/02/2026"
                             order_date = str(row['เวลา']).split()[0]
                             if order_date != today_str:
-                                df.at[index, 'สถานะ'] = 'expired'  # เปลี่ยนสถานะเป็นหมดอายุ
+                                df.at[index, 'สถานะ'] = 'expired'
                                 changed = True
                         except:
                             pass
+                if changed: df.to_csv(ORDER_CSV, index=False)
+        except:
+            pass
 
-                if changed:
-                    df.to_csv(ORDER_CSV, index=False)
-                    # st.toast("🧹 เคลียร์ออเดอร์ค้างจากเมื่อวานเรียบร้อย") # แจ้งเตือน (Optional)
-        except Exception as e:
-            print(f"Cleanup Error (Orders): {e}")
-
-    # --- 2. จัดการคิวค้าง ---
     if os.path.exists(QUEUE_CSV):
         try:
             q_df = pd.read_csv(QUEUE_CSV)
             if not q_df.empty:
-                # ดูเวลาของคิวแรก
-                first_q_timestamp = str(q_df.iloc[0]['timestamp'])  # Format: YYYY-MM-DD HH:MM:SS
-                # แปลงเป็นวันที่
-                q_date_str = first_q_timestamp.split()[0]  # YYYY-MM-DD
+                first_q_timestamp = str(q_df.iloc[0]['timestamp'])
+                q_date_str = first_q_timestamp.split()[0]
                 today_date_sys = get_thai_time().strftime("%Y-%m-%d")
-
-                # ถ้าวันที่ของคิว ไม่ใช่วันนี้ -> ล้างคิวทิ้ง
                 if q_date_str != today_date_sys:
-                    # สร้างไฟล์เปล่าใหม่ (ล้างข้อมูล)
                     pd.DataFrame(columns=["queue_id", "customer_name", "timestamp"]).to_csv(QUEUE_CSV, index=False)
-                    # st.toast("🧹 รีเซ็ตคิวสำหรับวันใหม่เรียบร้อย")
-        except Exception as e:
-            print(f"Cleanup Error (Queue): {e}")
+        except:
+            pass
 
 
 def load_menu():
@@ -119,7 +97,6 @@ def load_menu():
         ]
         df = pd.DataFrame(default_data)
         df.to_csv(MENU_CSV, index=False)
-
     try:
         df = pd.read_csv(MENU_CSV)
         required_cols = ["name", "price", "img", "category", "in_stock"]
@@ -129,10 +106,8 @@ def load_menu():
                     df[col] = True
                 else:
                     df[col] = ""
-    except Exception as e:
-        st.error(f"Error loading menu: {e}")
+    except:
         df = pd.DataFrame(columns=["name", "price", "img", "category", "in_stock"])
-
     df['img'] = df['img'].astype(str)
     return df
 
@@ -151,13 +126,7 @@ def load_orders():
         df = pd.DataFrame(columns=cols)
         df.to_csv(ORDER_CSV, index=False)
         return df
-    try:
-        df = pd.read_csv(ORDER_CSV)
-        for c in cols:
-            if c not in df.columns: df[c] = ""
-        return df
-    except:
-        return pd.DataFrame(columns=cols)
+    return pd.read_csv(ORDER_CSV)
 
 
 def load_contacts():
@@ -169,9 +138,7 @@ def load_contacts():
         return default_contact
     else:
         try:
-            df = pd.read_csv(CONTACT_CSV)
-            if df.empty: return default_contact
-            return df.iloc[0].to_dict()
+            return pd.read_csv(CONTACT_CSV).iloc[0].to_dict()
         except:
             return default_contact
 
@@ -194,20 +161,13 @@ def add_to_queue(name):
     if not df.empty and name in df['customer_name'].values:
         existing_id = df[df['customer_name'] == name].iloc[0]['queue_id']
         return existing_id, True
-
-    last_id = 0
+    last_id = 100
     if not df.empty:
         try:
-            last_queue_str = str(df.iloc[-1]['queue_id'])
-            if '-' in last_queue_str:
-                last_id = int(last_queue_str.split('-')[1])
-            else:
-                last_id = 100
+            last_str = str(df.iloc[-1]['queue_id'])
+            if '-' in last_str: last_id = int(last_str.split('-')[1])
         except:
             pass
-
-    if last_id < 100: last_id = 100
-
     new_id = f"Q-{last_id + 1}"
     new_data = {"queue_id": new_id, "customer_name": name, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     df = pd.concat([df, pd.DataFrame([new_data])], ignore_index=True)
@@ -222,7 +182,6 @@ def pop_queue():
         df.to_csv(QUEUE_CSV, index=False)
 
 
-# --- ระบบ Feedback ---
 def load_feedback():
     if not os.path.exists(FEEDBACK_CSV):
         df = pd.DataFrame(columns=["timestamp", "customer_name", "message"])
@@ -233,11 +192,7 @@ def load_feedback():
 
 def save_feedback_entry(name, message):
     df = load_feedback()
-    new_entry = {
-        "timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "customer_name": name,
-        "message": message
-    }
+    new_entry = {"timestamp": datetime.now().strftime("%d/%m/%Y %H:%M"), "customer_name": name, "message": message}
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
     df.to_csv(FEEDBACK_CSV, index=False)
 
@@ -304,20 +259,16 @@ def save_order(data):
         index_to_update = df.index[mask][0]
         old_items = str(df.at[index_to_update, 'รายการอาหาร'])
         new_items = old_items + ", " + str(data['รายการอาหาร'])
-
-        old_price = float(df.at[index_to_update, 'ยอดรวม']) if df.at[index_to_update, 'ยอดรวม'] else 0.0
+        old_price = float(df.at[index_to_update, 'ยอดรวม'])
         new_price = old_price + float(data['ยอดรวม'])
-
         old_note = str(df.at[index_to_update, 'หมายเหตุ'])
         if old_note == 'nan': old_note = ""
         new_note = data['หมายเหตุ']
         final_note = f"{old_note} | {new_note}" if new_note else old_note
-
         df.at[index_to_update, 'รายการอาหาร'] = new_items
         df.at[index_to_update, 'ยอดรวม'] = new_price
         df.at[index_to_update, 'หมายเหตุ'] = final_note
         df.at[index_to_update, 'เวลา'] = data['เวลา']
-
         df.to_csv(ORDER_CSV, index=False)
         status_result = "merged"
     else:
@@ -354,23 +305,37 @@ st.markdown("""
     header, footer {visibility: hidden;}
     .stButton>button { border-radius: 8px; font-weight: bold; background-color: #8D6E63; color: white; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; }
     .stButton>button:hover { background-color: #6D4C41; color: #FFECB3; transform: scale(1.02); }
-
     .customer-queue-box { background: linear-gradient(135deg, #3E2723 0%, #5D4037 100%); color: white; padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); border: 2px solid #D7CCC8; }
     .queue-title { font-size: 18px; font-weight: bold; color: #FFECB3; text-transform: uppercase; }
     .queue-big-number { font-size: 56px; font-weight: 800; line-height: 1; color: white; margin: 10px 0; }
     .queue-empty { background-color: #E8F5E9; border: 2px dashed #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
     .queue-full { background-color: #FFEBEE; border: 2px dashed #EF5350; color: #C62828; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
-
     .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
     .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
-
     .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
     h1, h2, h3 { color: #3E2723 !important; }
-
     .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
     .contact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #8D6E63; }
     .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
     .contact-link { text-decoration: none; color: #333; font-weight: bold; font-size: 16px; flex-grow: 1; }
+
+    /* Animation for warning */
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    .warning-box {
+        background-color: #FFEBEE;
+        border-left: 5px solid #F44336;
+        padding: 15px;
+        border-radius: 5px;
+        color: #C62828;
+        font-weight: bold;
+        text-align: center;
+        animation: pulse 2s infinite;
+        margin-bottom: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -381,7 +346,6 @@ if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
 if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
 if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
 
-# --- เรียกฟังก์ชันเคลียร์ค่าประจำวัน ก่อนโหลดข้อมูล ---
 daily_cleanup()
 
 menu_df = load_menu()
@@ -391,45 +355,41 @@ contact_info = load_contacts()
 queue_df = load_queue()
 feedback_df = load_feedback()
 
+# หาโต๊ะที่ไม่ว่าง (กำลัง Waiting)
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
+busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
 kitchen_load = len(waiting_orders)
 
 is_queue_mode = False
 can_order = True
 waiting_q_count = 0
 
-# Logic การตัดเข้าโหมดคิว (แก้ไขแล้ว: ต้องมีออเดอร์ >= 10 ถึงจะตัดเข้า)
 if kitchen_load >= KITCHEN_LIMIT:
     is_queue_mode = True
     can_order = False
 
-# ถ้ามีคิวค้าง (ซึ่งควรจะเป็นคิวของวันนี้แล้วเพราะมี daily_cleanup)
 if not queue_df.empty:
     if st.session_state.my_queue_id:
         try:
             my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
             waiting_q_count = my_idx
-
-            # ถ้าถึงคิวแล้ว และครัวว่างพอ ให้สั่งได้
             if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
                 if kitchen_load < KITCHEN_LIMIT:
                     can_order = True
-                    is_queue_mode = False  # ปิดหน้าคิว เพื่อให้เห็นเมนู
+                    is_queue_mode = False
                 else:
                     can_order = False
                     is_queue_mode = True
         except:
             waiting_q_count = len(queue_df)
 
-        # ================= 5. ส่วนหัวและเมนู (Header) =================
+        # ================= 5. ส่วนหัวและเมนู =================
 c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
-
 with c_logo:
     if os.path.exists("logo.png"):
         st.image("logo.png", width=320)
     else:
         st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
-
 with c_name:
     st.markdown(f"""
         <div style="display: flex; flex-direction: column; justify-content: center; height: 220px;">
@@ -441,7 +401,6 @@ with c_name:
             </div>
         </div>
     """, unsafe_allow_html=True)
-
 with c_menu:
     st.write("")
     with st.popover("☰ เมนู", use_container_width=True):
@@ -458,7 +417,6 @@ with c_menu:
             st.rerun()
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
-
         st.markdown("---")
         st.markdown("### 📞 ช่องทางติดต่อ")
         fb_url = sanitize_link(contact_info.get('facebook', ''))
@@ -475,9 +433,8 @@ with c_menu:
 
 st.markdown("---")
 
-# ================= 6. Controller & Page Logic =================
+# ================= 6. Controller =================
 
-# === Admin Login ===
 if st.session_state.app_mode == 'admin_login':
     st.subheader("🔐 เข้าสู่ระบบหลังร้าน")
     if st.button("⬅️ กลับ"):
@@ -496,7 +453,6 @@ if st.session_state.app_mode == 'admin_login':
             send_email_notification("🚨 Alert: รหัส Admin ผิด", f"เวลา: {thai_now}\nรหัสที่ใส่: {password_input}")
             st.session_state.last_wrong_pass = password_input
 
-# === Admin Dashboard ===
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
     if st.button("🚪 ออกจากระบบ"):
@@ -517,13 +473,21 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     with c1:
                         st.markdown(f"**{row['โต๊ะ']}** | {row['เวลา']}")
                         st.markdown(f"👤 {row['ลูกค้า']}")
+                        # --- แก้ไขการแสดงผลที่สลับกัน ---
                         st.info(f"💰 ยอดรวม: **{row['ยอดรวม']}** บาท")
                         with st.expander("รายการอาหาร"):
                             st.code(row['รายการอาหาร'], language="text")
-                        if str(row['หมายเหตุ']) != 'nan': st.warning(f"Note: {row['หมายเหตุ']}")
+                        # แสดง Note ให้ถูกต้อง
+                        if str(row['หมายเหตุ']) != 'nan' and str(row['หมายเหตุ']) != '':
+                            st.warning(f"Note: {row['หมายเหตุ']}")
                     with c2:
-                        if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary"):
+                        if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'paid'
+                            orders_df.to_csv(ORDER_CSV, index=False)
+                            st.rerun()
+                        # --- เพิ่มปุ่มยกเลิกออเดอร์ ---
+                        if st.button("❌ ยกเลิก", key=f"cncl_{index}", use_container_width=True):
+                            orders_df.at[index, 'สถานะ'] = 'cancelled'
                             orders_df.to_csv(ORDER_CSV, index=False)
                             st.rerun()
         else:
@@ -717,19 +681,45 @@ else:
     c_t, c_c = st.columns(2)
     with c_t:
         st.markdown("### 📍 เลือกโต๊ะ")
-        tbls = tables_df['table_name'].tolist()
-        if not tbls: tbls = ["โต๊ะ 1"]
-        table_no = st.selectbox("table", tbls, label_visibility="collapsed")
+
+        # --- กรองโต๊ะที่ไม่ว่างออก (Feature: New customers cannot select busy tables) ---
+        all_tables = tables_df['table_name'].tolist()
+        available_tables = [t for t in all_tables if t not in busy_tables]
+
+        # เพิ่มตัวเลือกบังคับ
+        tbl_options = ["--- เลือกโต๊ะ ---"] + available_tables
+        table_no = st.selectbox("table", tbl_options, label_visibility="collapsed")
+
+        # แสดงข้อความถ้าโต๊ะเต็มบางส่วน
+        if len(busy_tables) > 0:
+            st.caption(f"🔒 โต๊ะที่กำลังใช้งาน: {', '.join(busy_tables)}")
+
     with c_c:
         st.markdown("### 👤 ชื่อลูกค้า")
-        cust_name = st.text_input("cust", "ลูกค้าทั่วไป", label_visibility="collapsed")
-        # === หมายเหตุที่คุณต้องการ ===
+        # ปล่อยว่างไว้เป็นค่าเริ่มต้น
+        cust_name = st.text_input("cust", "", placeholder="พิมพ์ชื่อเล่นของท่าน...", label_visibility="collapsed")
         st.caption("⚠️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อที่ได้ทำการจองคิวไว้")
 
-    # === บังคับใส่ชื่อ ===
+    # --- Check Validation ---
+    valid_input = True
+    error_msg = ""
+
+    if table_no == "--- เลือกโต๊ะ ---":
+        valid_input = False
+
     if not cust_name:
-        st.warning("🔒 กรุณาระบุชื่อของคุณ เพื่อเริ่มสั่งอาหารและจำคิวครับ")
-        st.stop()
+        valid_input = False
+    elif "ลูกค้าทั่วไป" in cust_name:  # --- Feature: Block 'ลูกค้าทั่วไป' ---
+        valid_input = False
+        error_msg = "❌ ไม่อนุญาตให้ใช้ชื่อ 'ลูกค้าทั่วไป' กรุณาระบุชื่ออื่น"
+
+    if not valid_input:
+        if error_msg:
+            st.markdown(f"""<div class="warning-box">{error_msg}</div>""", unsafe_allow_html=True)
+        else:
+            st.markdown("""<div class="warning-box">🚨 กรุณา "เลือกโต๊ะ" และ "ใส่ชื่อ" เพื่อเริ่มสั่งอาหาร</div>""",
+                        unsafe_allow_html=True)
+        st.stop()  # หยุดการทำงานตรงนี้ ไม่แสดงเมนูจนกว่าจะกรอกครบ
 
     st.markdown("<br>", unsafe_allow_html=True)
 
