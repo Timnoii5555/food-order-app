@@ -54,7 +54,7 @@ def load_orders():
 
 def load_menu():
     if not os.path.exists(MENU_CSV):
-        # ข้อมูลเริ่มต้น
+        # ข้อมูลเริ่มต้น พร้อมหมวดหมู่ใหม่
         default_data = [
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
@@ -70,6 +70,14 @@ def load_menu():
     except:
         df = pd.DataFrame(columns=["name", "price", "img", "category", "in_stock"])
     return df
+
+
+def load_tables():
+    if not os.path.exists(TABLES_CSV):
+        default_tables = ["โต๊ะ 1", "โต๊ะ 2", "โต๊ะ 3", "โต๊ะ 4", "กลับบ้าน"]
+        df = pd.DataFrame(default_tables, columns=["table_name"])
+        df.to_csv(TABLES_CSV, index=False)
+    return pd.read_csv(TABLES_CSV)
 
 
 def load_contacts():
@@ -125,7 +133,6 @@ def load_feedback():
 
 def save_feedback_entry(name, message):
     df = load_feedback()
-    # ใช้เวลาไทยแบบ Real-time
     new_entry = {
         "timestamp": get_thai_time().strftime("%d/%m/%Y %H:%M:%S"),
         "customer_name": name,
@@ -146,7 +153,7 @@ def save_order(data):
         idx = df.index[mask][0]
         # ทบรายการอาหาร
         df.at[idx, 'รายการอาหาร'] = f"{df.at[idx, 'รายการอาหาร']}, {data['รายการอาหาร']}"
-        # ทบราคา
+        # ทบราคา (แก้ไขบั๊กราคาไม่เพิ่ม)
         try:
             old_p = float(df.at[idx, 'ยอดรวม'])
         except:
@@ -193,6 +200,22 @@ def get_image_base64(path):
     return ""
 
 
+def send_email_notification(subject, body):
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = RECEIVER_EMAIL
+    msg['Subject'] = subject
+    msg.attach(MIMEText(body, 'plain'))
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        server.quit()
+    except:
+        pass
+
+
 def sanitize_link(link):
     if not link: return "#"
     link = str(link).strip()
@@ -227,6 +250,7 @@ orders_df = load_orders()
 contact_info = load_contacts()
 queue_df = load_queue()
 feedback_df = load_feedback()
+tables_df = load_tables()
 
 waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 kitchen_load = len(waiting_orders)
@@ -268,6 +292,7 @@ st.divider()
 # ================= 6. Controller =================
 
 if st.session_state.app_mode == 'admin_login':
+    st.subheader("🔐 เข้าสู่ระบบ")
     pw = st.text_input("รหัสผ่าน", type="password")
     if pw == "090090op": st.session_state.app_mode = 'admin_dashboard'; st.rerun()
 
@@ -277,7 +302,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
     tabs = st.tabs(["👨‍🍳 ครัว (Auto)", "📢 โปรโมชั่น", "📦 สต็อก", "📝 เมนู", "📊 ยอดขาย", "📞 ติดต่อ", "💬 รีวิว"])
 
-    with tabs[0]:  # หน้าครัว (Auto Refresh 1 min)
+    with tabs[0]:  # หน้าครัว รีเฟรชทุก 1 นาที
         st.markdown(
             f"**สถานะครัว: {kitchen_load}/{KITCHEN_LIMIT}** | อัปเดตล่าสุด: {get_thai_time().strftime('%H:%M:%S')}")
         st.progress(min(kitchen_load / KITCHEN_LIMIT, 1.0))
@@ -302,7 +327,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.info("ไม่มีออเดอร์ค้าง")
 
-        time.sleep(60)  # Auto-refresh ทุก 60 วินาที
+        time.sleep(60)  # Auto-refresh ทุก 1 นาที
         st.rerun()
 
     with tabs[1]:  # โปรโมชั่น
@@ -418,7 +443,7 @@ else:
         st.stop()
 
     # --- 🍜 หน้าสั่งอาหาร ---
-    # Banner Carousel
+    # Banner Carousel (8 วินาที)
     imgs = [get_image_base64(os.path.join(BANNER_FOLDER, f"banner_{i}.png")) for i in range(1, 6) if
             os.path.exists(os.path.join(BANNER_FOLDER, f"banner_{i}.png"))]
     if imgs:
@@ -432,7 +457,8 @@ else:
     st.subheader("🛒 เริ่มสั่งอาหาร")
     c_t, c_c = st.columns(2)
     with c_t:
-        table_no = st.selectbox("📍 เลือกโต๊ะ", ["โต๊ะ 1", "โต๊ะ 2", "โต๊ะ 3", "โต๊ะ 4", "กลับบ้าน"])
+        tbls = tables_df['table_name'].tolist() if not tables_df.empty else ["โต๊ะ 1"]
+        table_no = st.selectbox("📍 เลือกโต๊ะ", tbls)
     with c_c:
         cust_name = st.text_input("👤 ชื่อของคุณ", value="", placeholder="ใส่ชื่อที่จองไว้...")
         st.caption("ℹ️ หากมีการจองคิวไว้แล้ว กรุณาใส่ชื่อเดิมที่เคยได้จองไว้")
@@ -486,6 +512,7 @@ else:
                 st.error("🚫 ครัวเต็มกะทันหัน กรุณารอสักครู่")
             else:
                 items_str = ", ".join([f"{n}(x{c})" for n, c in counts.items()])
+                # บันทึกออเดอร์
                 save_order({
                     "เวลา": get_thai_time().strftime("%H:%M"),
                     "โต๊ะ": table_no,
