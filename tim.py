@@ -12,13 +12,7 @@ from collections import Counter
 import base64
 import re
 import json
-
-# [NEW] ต้องลง pip install streamlit-javascript ก่อนใช้งาน
-try:
-    from streamlit_javascript import st_javascript
-except ImportError:
-    st.error("⚠️ กรุณาติดตั้ง Library เพิ่มเติมใน requirements.txt: streamlit-javascript")
-    st.stop()
+import random
 
 # ================= 1. ตั้งค่าระบบ (Configuration) =================
 try:
@@ -91,7 +85,6 @@ def daily_cleanup():
 
 def load_menu():
     if not os.path.exists(MENU_CSV):
-        # [UPDATED] ใช้หมวดหมู่ภาษาไทยในข้อมูลเริ่มต้น
         default_data = [
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
@@ -219,95 +212,29 @@ def delete_feedback_entry(index):
 
 def load_login_log():
     if not os.path.exists(LOGIN_LOG_CSV):
-        df = pd.DataFrame(columns=["timestamp", "declared_name", "real_device_info", "status"])
+        # [UPDATED] ไม่เก็บ real_device_info แล้ว
+        df = pd.DataFrame(columns=["timestamp", "declared_name", "status"])
         df.to_csv(LOGIN_LOG_CSV, index=False)
         return df
     return pd.read_csv(LOGIN_LOG_CSV)
 
 
-def save_login_log(declared_name, real_device_info, status="Success"):
+def save_login_log(declared_name, status="Success"):
     df = load_login_log()
     timestamp = get_thai_time().strftime("%d/%m/%Y %H:%M:%S")
-    real_device_info = str(real_device_info).replace(",", " ")
 
+    # ตรวจสอบว่ามี column real_device_info ค้างอยู่ไหม ถ้ามีให้ข้ามไป
     new_entry = {
         "timestamp": timestamp,
         "declared_name": declared_name,
-        "real_device_info": real_device_info,
         "status": status
     }
+    # ถ้าไฟล์เก่ามี column real_device_info ให้ใส่ขีด - ไปแทน
+    if "real_device_info" in df.columns:
+        new_entry["real_device_info"] = "-"
+
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
     df.to_csv(LOGIN_LOG_CSV, index=False)
-
-
-def estimate_device_model(ua_string, width, height):
-    if not ua_string: return "Unknown Device"
-    ua_string = str(ua_string)
-    width = int(width) if width else 0
-    height = int(height) if height else 0
-
-    if width > height:
-        width, height = height, width
-
-    device_guess = "PC/Generic"
-
-    if "iPhone" in ua_string:
-        device_guess = "iPhone (Unknown Model)"
-        if width == 390 and height == 844:
-            device_guess = "iPhone 12 / 13 / 14"
-        elif width == 393 and height == 852:
-            device_guess = "iPhone 14 Pro / 15 / 16"
-        elif width == 428 and height == 926:
-            device_guess = "iPhone 12/13/14 Pro Max"
-        elif width == 430 and height == 932:
-            device_guess = "iPhone 14/15/16 Pro Max"
-        elif width == 375 and height == 812:
-            device_guess = "iPhone X / XS / 11 Pro / 12 Mini"
-        elif width == 414 and height == 896:
-            device_guess = "iPhone XR / 11 / XS Max"
-        elif width == 375 and height == 667:
-            device_guess = "iPhone SE / 6 / 7 / 8"
-        elif width == 414 and height == 736:
-            device_guess = "iPhone 6/7/8 Plus"
-
-    elif "iPad" in ua_string:
-        device_guess = "iPad"
-
-    elif "Android" in ua_string:
-        device_guess = "Android"
-        match = re.search(r"\b([A-Z]{2,}-\w+|\w+\sBuild)", ua_string)
-        if match:
-            possible_model = match.group(0).replace(" Build", "")
-            device_guess = f"Android (Model: {possible_model})"
-        else:
-            try:
-                parts = ua_string.split(';')
-                for part in parts:
-                    if "Build/" in part:
-                        model = part.split("Build/")[0].strip()
-                        device_guess = f"Android ({model})"
-                        break
-            except:
-                pass
-
-    elif "Macintosh" in ua_string:
-        device_guess = "Mac OS"
-    elif "Windows" in ua_string:
-        device_guess = "Windows PC"
-
-    browser = "Browser"
-    if "Line" in ua_string:
-        browser = "Line App"
-    elif "FBAN" in ua_string or "FBAV" in ua_string:
-        browser = "Facebook App"
-    elif "Chrome" in ua_string and "Edg" not in ua_string:
-        browser = "Chrome"
-    elif "Safari" in ua_string and "Chrome" not in ua_string:
-        browser = "Safari"
-    elif "Firefox" in ua_string:
-        browser = "Firefox"
-
-    return f"{device_guess} [{browser}] (Res: {width}x{height})"
 
 
 def save_image(uploaded_file):
@@ -477,6 +404,11 @@ if 'user_table' not in st.session_state: st.session_state.user_table = None
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
 
+# [NEW] State สำหรับระบบ OTP 2 ขั้นตอน
+if 'login_phase' not in st.session_state: st.session_state.login_phase = 1  # 1=กรอกรหัส, 2=รอ OTP
+if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
+if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
+
 # --- Feature 1 (Logic): ตรวจจับการเปลี่ยนแปลงของไฟล์ Menu ---
 if 'menu_mtime' not in st.session_state:
     st.session_state.menu_mtime = 0
@@ -558,6 +490,7 @@ with c_menu:
             st.rerun()
         if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
             st.session_state.app_mode = 'admin_login'
+            st.session_state.login_phase = 1  # Reset Login Phase
             st.rerun()
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
@@ -585,93 +518,75 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    js_code = """
-    (function() {
-        return JSON.stringify({
-            ua: navigator.userAgent,
-            width: window.screen.width,
-            height: window.screen.height
-        });
-    })();
-    """
-    # ใช้ key เพื่อป้องกันการรันซ้ำโดยไม่จำเป็น
-    device_data_json = st_javascript(js_code, key="device_checker_js")
+    # [PHASE 1] กรอกรหัสผ่านก่อน (ตัดการเช็ค Device ออกแล้ว)
+    if st.session_state.login_phase == 1:
+        with st.container(border=True):
+            st.info("ขั้นตอนที่ 1: ยืนยันรหัสผ่านเพื่อขออนุมัติเข้าใช้งาน")
+            admin_device = st.text_input("👤 ผู้ใช้งาน (ชื่อเล่น)", placeholder="ระบุชื่อผู้ใช้งาน...")
+            password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
 
-    device_info_str = None
-    real_ua = ""
-    scr_w = 0
-    scr_h = 0
-
-    # ถ้ายังไม่ได้รับค่าจาก JS (จะเป็น 0 หรือ None)
-    if device_data_json == 0 or device_data_json is None:
-        st.warning("⏳ กำลังตรวจสอบอุปกรณ์... (กรุณารอสักครู่)")
-        st.spinner("Checking Device...")
-        time.sleep(1)  # รอ 1 วินาทีแล้วรีเฟรชเพื่อรับค่า
-        st.rerun()
-    else:
-        try:
-            d = json.loads(device_data_json)
-            real_ua = d.get('ua', '')
-            scr_w = d.get('width', 0)
-            scr_h = d.get('height', 0)
-            device_info_str = estimate_device_model(real_ua, scr_w, scr_h)
-        except:
-            pass
-
-    with st.container(border=True):
-        st.info("ระบบจะบันทึกทั้ง 'ชื่อที่กรอก' และ 'อุปกรณ์จริงที่ตรวจพบ' เพื่อความปลอดภัย")
-        admin_device = st.text_input("👤 ผู้ใช้งาน (ชื่อเล่น)", placeholder="ระบุชื่อผู้ใช้งาน...")
-        password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
-
-        # แสดง Device ที่จับได้ (ต้องมีค่าถึงจะแสดง)
-        if device_info_str:
-            st.success(f"📱 ตรวจพบอุปกรณ์: **{device_info_str}**")
-        else:
-            st.error("❌ ไม่พบข้อมูลอุปกรณ์ (กรุณารอโหลดสักครู่)")
-
-    if st.button("Login"):
-        if not device_info_str:
-            st.error("⚠️ ยังตรวจสอบอุปกรณ์ไม่เสร็จ กรุณารอ 2-3 วินาทีแล้วกดใหม่")
-        elif password_input:
-            if password_input == ADMIN_PASSWORD:
-                declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
-
-                # 1. แจ้งเตือนทาง Email
-                thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
-                email_body = f"""
-                เวลา: {thai_now}
-                👤 ชื่อที่กรอกมา: {declared_name}
-                📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
-                -------------------------------------
-                Raw UserAgent: {real_ua}
-                Resolution: {scr_w} x {scr_h}
-                """
-                send_email_notification("🔐 Alert: มีการ Login (Success)", email_body)
-
-                # 2. บันทึก Log ลง CSV
-                save_login_log(declared_name, device_info_str, "Success")
-
-                st.success(f"ยินดีต้อนรับคุณ {declared_name} ✅")
-                time.sleep(1)
-                st.session_state.app_mode = 'admin_dashboard'
-                st.rerun()
-
-            elif password_input != "":
-                st.error("รหัสผิด! ❌")
-                if st.session_state.last_wrong_pass != password_input:
-                    thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
+        if st.button("ขอเข้าสู่ระบบ (Request Access)"):
+            if password_input:
+                if password_input == ADMIN_PASSWORD:
+                    # รหัสถูก -> สร้าง OTP และส่งเมลหาเจ้าของ
+                    otp_code = str(random.randint(100000, 999999))
                     declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
+                    thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
 
+                    # บันทึก State ชั่วคราว
+                    st.session_state.login_otp_ref = otp_code
+                    st.session_state.login_temp_name = declared_name
+
+                    # ส่งอีเมลหาเจ้าของ (คุณ)
+                    email_subject = f"🔒 คำขอเข้าใช้งาน Admin: {declared_name}"
                     email_body = f"""
+                    มีผู้ต้องการเข้าสู่ระบบจัดการร้าน
+                    --------------------------------
                     เวลา: {thai_now}
-                    👤 ชื่อที่กรอกมา: {declared_name}
-                    📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
-                    🔑 รหัสที่ลองใส่: {password_input}
-                    """
-                    send_email_notification("🚨 Alert: รหัส Admin ผิด (Failed)", email_body)
+                    👤 ชื่อที่ระบุ: {declared_name}
+                    --------------------------------
+                    หากคุณอนุญาต กรุณาแจ้งรหัสนี้แก่ผู้ใช้งาน:
 
-                    save_login_log(declared_name, device_info_str, "Failed")
-                    st.session_state.last_wrong_pass = password_input
+                    👉 รหัส OTP: {otp_code} 👈
+
+                    (หากคุณไม่ได้ทำรายการนี้ กรุณาเพิกเฉย)
+                    """
+                    send_email_notification(email_subject, email_body)
+
+                    st.session_state.login_phase = 2
+                    st.rerun()
+                else:
+                    st.error("รหัสผ่านผิด! ❌")
+                    # Log Failed Attempt
+                    save_login_log(admin_device, "Failed (Wrong Pass)")
+
+    # [PHASE 2] กรอก OTP ที่เจ้าของส่งให้
+    elif st.session_state.login_phase == 2:
+        with st.container(border=True):
+            st.subheader("🛡️ ขั้นตอนที่ 2: รอการอนุมัติ")
+            st.info("รหัสยืนยัน (OTP) ถูกส่งไปยังอีเมลเจ้าของร้านแล้ว กรุณาขอรหัสจากเจ้าของร้านเพื่อดำเนินการต่อ")
+
+            st.markdown(f"👤 ผู้ขอเข้าใช้: **{st.session_state.login_temp_name}**")
+
+            otp_input = st.text_input("🔢 กรอกรหัส OTP 6 หลัก", max_chars=6)
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("ยืนยันรหัส OTP", type="primary", use_container_width=True):
+                    if otp_input == st.session_state.login_otp_ref:
+                        # OTP ถูกต้อง -> เข้าสู่ระบบสำเร็จ
+                        save_login_log(st.session_state.login_temp_name, "Success (OTP Verified)")
+                        st.success("อนุมัติสำเร็จ! ยินดีต้อนรับครับ ✅")
+                        time.sleep(1)
+                        st.session_state.app_mode = 'admin_dashboard'
+                        st.session_state.login_phase = 1  # Reset
+                        st.rerun()
+                    else:
+                        st.error("รหัส OTP ไม่ถูกต้อง! ❌")
+            with c2:
+                if st.button("ยกเลิก / ขอใหม่", use_container_width=True):
+                    st.session_state.login_phase = 1
+                    st.rerun()
 
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
@@ -785,7 +700,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
         with st.form("add_m"):
             n = st.text_input("ชื่อเมนู")
             p = st.number_input("ราคา", min_value=0)
-            # [UPDATED] หมวดหมู่ภาษาไทย
             categories_options = ["เนื้อสัตว์ (Meat)", "อาหารทะเล (Seafood)", "ผัก (Veggie)", "ของทานเล่น (Snack)",
                                   "เครื่องดื่ม (Drinks)", "อื่นๆ (Others)"]
             c = st.selectbox("หมวด", categories_options)
@@ -858,17 +772,15 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.info("ยังไม่มีรีวิวครับ")
 
-    # [UPDATED] Tab 8: ประวัติการเข้าสู่ระบบแบบละเอียด (แสดงรุ่น)
     with tab8:
         st.subheader("📜 ประวัติการเข้าสู่ระบบ (Login Log)")
-        st.info("ตารางนี้แสดงชื่อที่กรอกเทียบกับอุปกรณ์จริง (เดารุ่นจากขนาดหน้าจอ)")
+        st.info("ตารางนี้แสดงประวัติการเข้าใช้งาน")
         log_df = load_login_log()
         if not log_df.empty:
             # กลับด้านเพื่อให้เห็นล่าสุดก่อน
             st.dataframe(log_df.iloc[::-1], hide_index=True, use_container_width=True)
             if st.button("🗑️ ล้างประวัติทั้งหมด"):
-                pd.DataFrame(columns=["timestamp", "declared_name", "real_device_info", "status"]).to_csv(LOGIN_LOG_CSV,
-                                                                                                          index=False)
+                pd.DataFrame(columns=["timestamp", "declared_name", "status"]).to_csv(LOGIN_LOG_CSV, index=False)
                 st.rerun()
         else:
             st.info("ยังไม่มีประวัติการเข้าใช้งาน")
