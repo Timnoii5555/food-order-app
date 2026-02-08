@@ -17,7 +17,7 @@ import json
 try:
     from streamlit_javascript import st_javascript
 except ImportError:
-    st.error("⚠️ กรุณาติดตั้ง Library เพิ่มเติม: pip install streamlit-javascript เพื่อใช้งานฟังก์ชันตรวจสอบอุปกรณ์")
+    st.error("⚠️ กรุณาติดตั้ง Library เพิ่มเติมใน requirements.txt: streamlit-javascript")
     st.stop()
 
 # ================= 1. ตั้งค่าระบบ (Configuration) =================
@@ -91,19 +91,20 @@ def daily_cleanup():
 
 def load_menu():
     if not os.path.exists(MENU_CSV):
+        # [UPDATED] ใช้หมวดหมู่ภาษาไทยในข้อมูลเริ่มต้น
         default_data = [
             {"name": "หมูหมัก", "price": 120,
              "img": "https://images.unsplash.com/photo-1615937657715-bc7b4b7962c1?auto=format&fit=crop&w=500&q=60",
-             "category": "Meat", "in_stock": True},
+             "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
             {"name": "หมูสามชั้น", "price": 89,
              "img": "https://images.unsplash.com/photo-1600891964092-4316c288032e?auto=format&fit=crop&w=500&q=60",
-             "category": "Meat", "in_stock": True},
+             "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
             {"name": "กุ้งสด", "price": 150,
              "img": "https://images.unsplash.com/photo-1565680018434-b513d5e5fd47?auto=format&fit=crop&w=500&q=60",
-             "category": "Seafood", "in_stock": True},
+             "category": "อาหารทะเล (Seafood)", "in_stock": True},
             {"name": "ผักกวางตุ้ง", "price": 40,
              "img": "https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=500&q=60",
-             "category": "Veggie", "in_stock": True},
+             "category": "ผัก (Veggie)", "in_stock": True},
         ]
         df = pd.DataFrame(default_data)
         df.to_csv(MENU_CSV, index=False)
@@ -216,7 +217,6 @@ def delete_feedback_entry(index):
         pass
 
 
-# [NEW] ฟังก์ชันโหลดและบันทึก Log การเข้าสู่ระบบ
 def load_login_log():
     if not os.path.exists(LOGIN_LOG_CSV):
         df = pd.DataFrame(columns=["timestamp", "declared_name", "real_device_info", "status"])
@@ -240,23 +240,19 @@ def save_login_log(declared_name, real_device_info, status="Success"):
     df.to_csv(LOGIN_LOG_CSV, index=False)
 
 
-# [NEW] ฟังก์ชันขั้นสูง: เดารุ่นจาก UserAgent + ขนาดหน้าจอ
 def estimate_device_model(ua_string, width, height):
     if not ua_string: return "Unknown Device"
     ua_string = str(ua_string)
     width = int(width) if width else 0
     height = int(height) if height else 0
 
-    # สลับด้านถ้าเป็นแนวนอน (เพื่อให้เทียบกับมาตรฐานแนวตั้งได้)
     if width > height:
         width, height = height, width
 
     device_guess = "PC/Generic"
 
-    # 1. ตรวจสอบ iOS (iPhone/iPad)
     if "iPhone" in ua_string:
         device_guess = "iPhone (Unknown Model)"
-        # เทียบขนาดหน้าจอ (Logical Resolution)
         if width == 390 and height == 844:
             device_guess = "iPhone 12 / 13 / 14"
         elif width == 393 and height == 852:
@@ -277,17 +273,13 @@ def estimate_device_model(ua_string, width, height):
     elif "iPad" in ua_string:
         device_guess = "iPad"
 
-    # 2. ตรวจสอบ Android
     elif "Android" in ua_string:
         device_guess = "Android"
-        # พยายามหาชื่อรุ่นจาก User Agent (เช่น SM-G990, Pixel 6)
-        match = re.search(r"\b([A-Z]{2,}-\w+|\w+\sBuild)", ua_string)  # Pattern ทั่วไปของรหัสรุ่น
+        match = re.search(r"\b([A-Z]{2,}-\w+|\w+\sBuild)", ua_string)
         if match:
-            # ดึงข้อความมาแล้วลบคำว่า Build ออก
             possible_model = match.group(0).replace(" Build", "")
             device_guess = f"Android (Model: {possible_model})"
         else:
-            # ถ้าหาไม่เจอ ให้เอาคำระหว่าง ; ... Build มา
             try:
                 parts = ua_string.split(';')
                 for part in parts:
@@ -303,7 +295,6 @@ def estimate_device_model(ua_string, width, height):
     elif "Windows" in ua_string:
         device_guess = "Windows PC"
 
-    # Browser Check
     browser = "Browser"
     if "Line" in ua_string:
         browser = "Line App"
@@ -594,8 +585,6 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [UPDATED] ดึงข้อมูล UserAgent และ Screen Size ด้วย JS
-    # ต้องดึงค่าเป็น JSON แล้วมา parse ใน Python
     js_code = """
     (function() {
         return JSON.stringify({
@@ -605,14 +594,21 @@ if st.session_state.app_mode == 'admin_login':
         });
     })();
     """
-    device_data_json = st_javascript(js_code)
+    # ใช้ key เพื่อป้องกันการรันซ้ำโดยไม่จำเป็น
+    device_data_json = st_javascript(js_code, key="device_checker_js")
 
-    device_info_str = "Waiting for device info..."
+    device_info_str = None
     real_ua = ""
     scr_w = 0
     scr_h = 0
 
-    if device_data_json:
+    # ถ้ายังไม่ได้รับค่าจาก JS (จะเป็น 0 หรือ None)
+    if device_data_json == 0 or device_data_json is None:
+        st.warning("⏳ กำลังตรวจสอบอุปกรณ์... (กรุณารอสักครู่)")
+        st.spinner("Checking Device...")
+        time.sleep(1)  # รอ 1 วินาทีแล้วรีเฟรชเพื่อรับค่า
+        st.rerun()
+    else:
         try:
             d = json.loads(device_data_json)
             real_ua = d.get('ua', '')
@@ -627,50 +623,55 @@ if st.session_state.app_mode == 'admin_login':
         admin_device = st.text_input("👤 ผู้ใช้งาน (ชื่อเล่น)", placeholder="ระบุชื่อผู้ใช้งาน...")
         password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
 
-        # แสดง Device ที่จับได้
-        if device_data_json:
-            st.caption(f"📡 ระบบจับได้ว่าเป็น: **{device_info_str}**")
+        # แสดง Device ที่จับได้ (ต้องมีค่าถึงจะแสดง)
+        if device_info_str:
+            st.success(f"📱 ตรวจพบอุปกรณ์: **{device_info_str}**")
+        else:
+            st.error("❌ ไม่พบข้อมูลอุปกรณ์ (กรุณารอโหลดสักครู่)")
 
-    if password_input:
-        if password_input == ADMIN_PASSWORD:
-            declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
-
-            # 1. แจ้งเตือนทาง Email (รวมข้อมูลจริง + ข้อมูลที่กรอก)
-            thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
-            email_body = f"""
-            เวลา: {thai_now}
-            👤 ชื่อที่กรอกมา: {declared_name}
-            📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
-            -------------------------------------
-            Raw UserAgent: {real_ua}
-            Resolution: {scr_w} x {scr_h}
-            """
-            send_email_notification("🔐 Alert: มีการ Login (Success)", email_body)
-
-            # 2. บันทึก Log ลง CSV
-            save_login_log(declared_name, device_info_str, "Success")
-
-            st.success(f"ยินดีต้อนรับคุณ {declared_name} ✅")
-            time.sleep(1)
-            st.session_state.app_mode = 'admin_dashboard'
-            st.rerun()
-
-        elif password_input != "":
-            st.error("รหัสผิด! ❌")
-            if st.session_state.last_wrong_pass != password_input:
-                thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
+    if st.button("Login"):
+        if not device_info_str:
+            st.error("⚠️ ยังตรวจสอบอุปกรณ์ไม่เสร็จ กรุณารอ 2-3 วินาทีแล้วกดใหม่")
+        elif password_input:
+            if password_input == ADMIN_PASSWORD:
                 declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
 
+                # 1. แจ้งเตือนทาง Email
+                thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
                 email_body = f"""
                 เวลา: {thai_now}
                 👤 ชื่อที่กรอกมา: {declared_name}
                 📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
-                🔑 รหัสที่ลองใส่: {password_input}
+                -------------------------------------
+                Raw UserAgent: {real_ua}
+                Resolution: {scr_w} x {scr_h}
                 """
-                send_email_notification("🚨 Alert: รหัส Admin ผิด (Failed)", email_body)
+                send_email_notification("🔐 Alert: มีการ Login (Success)", email_body)
 
-                save_login_log(declared_name, device_info_str, "Failed")
-                st.session_state.last_wrong_pass = password_input
+                # 2. บันทึก Log ลง CSV
+                save_login_log(declared_name, device_info_str, "Success")
+
+                st.success(f"ยินดีต้อนรับคุณ {declared_name} ✅")
+                time.sleep(1)
+                st.session_state.app_mode = 'admin_dashboard'
+                st.rerun()
+
+            elif password_input != "":
+                st.error("รหัสผิด! ❌")
+                if st.session_state.last_wrong_pass != password_input:
+                    thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
+                    declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
+
+                    email_body = f"""
+                    เวลา: {thai_now}
+                    👤 ชื่อที่กรอกมา: {declared_name}
+                    📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
+                    🔑 รหัสที่ลองใส่: {password_input}
+                    """
+                    send_email_notification("🚨 Alert: รหัส Admin ผิด (Failed)", email_body)
+
+                    save_login_log(declared_name, device_info_str, "Failed")
+                    st.session_state.last_wrong_pass = password_input
 
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
@@ -784,7 +785,10 @@ elif st.session_state.app_mode == 'admin_dashboard':
         with st.form("add_m"):
             n = st.text_input("ชื่อเมนู")
             p = st.number_input("ราคา", min_value=0)
-            c = st.selectbox("หมวด", ["Meat", "Seafood", "Veggie", "Snack"])
+            # [UPDATED] หมวดหมู่ภาษาไทย
+            categories_options = ["เนื้อสัตว์ (Meat)", "อาหารทะเล (Seafood)", "ผัก (Veggie)", "ของทานเล่น (Snack)",
+                                  "เครื่องดื่ม (Drinks)", "อื่นๆ (Others)"]
+            c = st.selectbox("หมวด", categories_options)
             uploaded_file = st.file_uploader("อัปโหลดรูปจากเครื่อง", type=['png', 'jpg', 'jpeg'])
             img_url_input = st.text_input("หรือใส่ URL รูปภาพ", "https://placehold.co/400")
             if st.form_submit_button("บันทึกเมนู"):
