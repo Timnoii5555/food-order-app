@@ -34,7 +34,7 @@ CONTACT_CSV = 'contact_data.csv'
 QUEUE_CSV = 'queue_data.csv'
 FEEDBACK_CSV = 'feedback_data.csv'
 LOGIN_LOG_CSV = 'login_log.csv'
-REFRESH_SIGNAL_FILE = 'refresh_signal.txt'  # [NEW] ไฟล์สัญญาณรีเฟรช
+REFRESH_SIGNAL_FILE = 'refresh_signal.txt'
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
@@ -51,25 +51,41 @@ def get_thai_time():
     return datetime.now(tz)
 
 
-# [NEW] ฟังก์ชันเช็คสัญญาณรีเฟรชจาก Admin
-def check_global_refresh():
+# [CORE] ระบบตรวจสอบการอัปเดต (Sync System)
+def check_system_updates():
+    should_rerun = False
+
+    # 1. เช็คสัญญาณ Global Refresh จาก Admin
     if os.path.exists(REFRESH_SIGNAL_FILE):
         try:
             with open(REFRESH_SIGNAL_FILE, 'r') as f:
                 signal_time = float(f.read().strip())
 
-            # ถ้า Session ยังไม่มีค่า หรือ ค่าในไฟล์ใหม่กว่าค่าเดิม
             if 'last_refresh_timestamp' not in st.session_state:
                 st.session_state.last_refresh_timestamp = signal_time
             elif signal_time > st.session_state.last_refresh_timestamp:
                 st.session_state.last_refresh_timestamp = signal_time
-                st.rerun()  # บังคับรีเฟรชหน้าจอทันที
+                should_rerun = True
         except:
             pass
 
+    # 2. เช็คการอัปเดตไฟล์เมนู (Menu Update)
+    if os.path.exists(MENU_CSV):
+        try:
+            current_mtime = os.path.getmtime(MENU_CSV)
+            if 'menu_mtime' not in st.session_state:
+                st.session_state.menu_mtime = current_mtime
+            elif current_mtime > st.session_state.menu_mtime:
+                st.session_state.menu_mtime = current_mtime
+                st.toast("📢 เมนูมีการเปลี่ยนแปลง!", icon="🍲")
+                should_rerun = True
+        except:
+            pass
+
+    return should_rerun
+
 
 def trigger_global_refresh():
-    # Admin กดปุ่มนี้ -> เขียนเวลาปัจจุบันลงไฟล์ -> ทุกเครื่องจะ detect และรีเฟรช
     with open(REFRESH_SIGNAL_FILE, 'w') as f:
         f.write(str(time.time()))
 
@@ -251,7 +267,6 @@ def save_login_log(declared_name, status="Success"):
         "declared_name": declared_name,
         "status": status
     }
-    # รองรับโครงสร้างเก่าถ้ามี
     if "real_device_info" in df.columns:
         new_entry["real_device_info"] = "-"
 
@@ -353,9 +368,16 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- Feature: Polling Script & Global Refresh Checker ---
-# ตรวจสอบสัญญาณรีเฟรชทุกครั้งที่หน้ารัน
-check_global_refresh()
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL
+if 'name' in st.query_params and 'table' in st.query_params:
+    if st.session_state.user_name == "":
+        st.session_state.user_name = st.query_params['name']
+        st.session_state.user_table = st.query_params['table']
+        st.session_state.details_confirmed = True
+
+# [SYNC] ตรวจสอบการอัปเดต (รีเฟรชหน้าจออัตโนมัติหากมีการเปลี่ยนแปลง)
+if check_system_updates():
+    st.rerun()
 
 # JavaScript Poller: บังคับให้ Python Script ทำงานทุก 2 วินาที เพื่อเช็คค่า
 components.html(
@@ -434,20 +456,6 @@ if 'details_confirmed' not in st.session_state: st.session_state.details_confirm
 if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
 if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
 if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
-
-# --- Feature 1 (Logic): ตรวจจับการเปลี่ยนแปลงของไฟล์ Menu ---
-if 'menu_mtime' not in st.session_state:
-    st.session_state.menu_mtime = 0
-
-if os.path.exists(MENU_CSV):
-    current_mtime = os.path.getmtime(MENU_CSV)
-    if st.session_state.menu_mtime != 0 and current_mtime != st.session_state.menu_mtime:
-        st.session_state.menu_mtime = current_mtime
-        st.toast("📢 มีการอัปเดตรายการอาหาร/สต็อก!")
-        time.sleep(1)
-        st.rerun()
-    else:
-        st.session_state.menu_mtime = current_mtime
 
 daily_cleanup()
 
@@ -544,7 +552,7 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [PHASE 1] กรอกรหัสผ่าน (ตัด Device Checker ออก)
+    # [PHASE 1] กรอกรหัสผ่าน
     if st.session_state.login_phase == 1:
         with st.container(border=True):
             st.info("ขั้นตอนที่ 1: ยืนยันรหัสผ่านเพื่อขออนุมัติเข้าใช้งาน")
@@ -613,7 +621,6 @@ if st.session_state.app_mode == 'admin_login':
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
 
-    # [NEW] ปุ่ม Global Refresh สำหรับ Admin
     c_ref1, c_ref2 = st.columns([3, 1])
     with c_ref1:
         if st.button("🚪 ออกจากระบบ"):
@@ -844,6 +851,9 @@ else:
                         st.session_state.user_name = c_name_input
                         st.session_state.user_table = table_input
                         st.session_state.details_confirmed = True
+                        # [PERSISTENCE] ฝังข้อมูลลง URL
+                        st.query_params['name'] = c_name_input
+                        st.query_params['table'] = table_input
                         st.rerun()
 
         if is_queue_mode:
@@ -868,6 +878,7 @@ else:
 
     if st.button("✏️ เปลี่ยนชื่อ/โต๊ะ"):
         st.session_state.details_confirmed = False
+        st.query_params.clear()  # ล้าง URL Param
         st.rerun()
 
     banner_images = []
