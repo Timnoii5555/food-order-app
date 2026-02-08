@@ -14,7 +14,29 @@ import re
 import json
 import random
 
-# ================= 1. ตั้งค่าระบบ (Configuration) =================
+# ================= 1. ตั้งค่าหน้าเว็บ (ต้องอยู่บนสุดเสมอ) =================
+st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
+
+# ================= 2. ประกาศตัวแปรระบบ (Session State) - ย้ายมาไว้ตรงนี้ =================
+if 'basket' not in st.session_state: st.session_state.basket = []
+if 'page' not in st.session_state: st.session_state.page = 'menu'
+if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
+if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
+if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
+if 'user_table' not in st.session_state: st.session_state.user_table = None
+if 'user_name' not in st.session_state: st.session_state.user_name = ""
+if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
+
+# State สำหรับระบบ Login 2FA
+if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
+if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
+if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
+
+# State สำหรับระบบ Auto-Refresh
+if 'menu_mtime' not in st.session_state: st.session_state.menu_mtime = 0
+if 'last_refresh_timestamp' not in st.session_state: st.session_state.last_refresh_timestamp = 0
+
+# ================= 3. Config & Library Check =================
 try:
     SENDER_EMAIL = st.secrets["email"]["user"]
     SENDER_PASSWORD = st.secrets["email"]["password"]
@@ -43,26 +65,8 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
-# ================= 2. เริ่มต้น UI & State (ย้ายมาไว้ตรงนี้เพื่อแก้ Error) =================
-st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# [CRITICAL FIX] ประกาศ State ก่อนเรียกใช้เสมอ
-if 'basket' not in st.session_state: st.session_state.basket = []
-if 'page' not in st.session_state: st.session_state.page = 'menu'
-if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
-if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
-if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
-if 'user_table' not in st.session_state: st.session_state.user_table = None
-if 'user_name' not in st.session_state: st.session_state.user_name = ""
-if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
-if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
-if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
-if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
-if 'menu_mtime' not in st.session_state: st.session_state.menu_mtime = 0
-if 'last_refresh_timestamp' not in st.session_state: st.session_state.last_refresh_timestamp = 0
-
-
-# ================= 3. ฟังก์ชันจัดการข้อมูล =================
+# ================= 4. ฟังก์ชันจัดการข้อมูล (Functions) =================
 
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
@@ -380,9 +384,9 @@ def sanitize_link(link):
     return "https://" + link
 
 
-# ================= 4. Logic & Display =================
+# ================= 5. เริ่มต้นการทำงาน (Logic Start) =================
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (ต้องทำหลังประกาศ State แต่ก่อนเข้า Logic)
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (ต้องทำหลังประกาศ State แต่ก่อนเริ่ม Logic อื่นๆ)
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
@@ -448,58 +452,7 @@ components.html(
     height=0,
 )
 
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;500;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; background-color: #FDFBF7; }
-    header, footer {visibility: hidden;}
-    .stButton>button { border-radius: 8px; font-weight: bold; background-color: #8D6E63; color: white; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; }
-    .stButton>button:hover { background-color: #6D4C41; color: #FFECB3; transform: scale(1.02); }
-    .customer-queue-box { background: linear-gradient(135deg, #3E2723 0%, #5D4037 100%); color: white; padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); border: 2px solid #D7CCC8; }
-    .queue-title { font-size: 18px; font-weight: bold; color: #FFECB3; text-transform: uppercase; }
-    .queue-big-number { font-size: 56px; font-weight: 800; line-height: 1; color: white; margin: 10px 0; }
-    .queue-empty { background-color: #E8F5E9; border: 2px dashed #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
-    .queue-full { background-color: #FFEBEE; border: 2px dashed #EF5350; color: #C62828; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
-    .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
-    .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
-    .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
-    h1, h2, h3 { color: #3E2723 !important; }
-    .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-    .contact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #8D6E63; }
-    .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
-    .contact-link { text-decoration: none; color: #333; font-weight: bold; font-size: 16px; flex-grow: 1; }
-
-    @keyframes pulse {
-        0% { transform: scale(1); }
-        50% { transform: scale(1.05); }
-        100% { transform: scale(1); }
-    }
-    .warning-box {
-        background-color: #FFEBEE;
-        border-left: 5px solid #F44336;
-        padding: 15px;
-        border-radius: 5px;
-        color: #C62828;
-        font-weight: bold;
-        text-align: center;
-        animation: pulse 2s infinite;
-        margin-bottom: 20px;
-    }
-    .kitchen-status-box {
-        background-color: #E8F5E9; 
-        border: 2px solid #4CAF50; 
-        color: #2E7D32; 
-        padding: 15px; 
-        border-radius: 12px; 
-        text-align: center; 
-        font-weight: bold; 
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# ================= 6. Controller =================
+# ================= 6. Controller (Main App) =================
 
 if st.session_state.app_mode == 'admin_login':
     st.subheader("🔐 เข้าสู่ระบบหลังร้าน")
