@@ -12,6 +12,13 @@ from collections import Counter
 import base64
 import re
 
+# [NEW] ต้องลง pip install streamlit-javascript ก่อนใช้งาน
+try:
+    from streamlit_javascript import st_javascript
+except ImportError:
+    st.error("⚠️ กรุณาติดตั้ง Library เพิ่มเติม: pip install streamlit-javascript เพื่อใช้งานฟังก์ชันตรวจสอบอุปกรณ์")
+    st.stop()
+
 # ================= 1. ตั้งค่าระบบ (Configuration) =================
 try:
     SENDER_EMAIL = st.secrets["email"]["user"]
@@ -31,7 +38,7 @@ TABLES_CSV = 'tables_data.csv'
 CONTACT_CSV = 'contact_data.csv'
 QUEUE_CSV = 'queue_data.csv'
 FEEDBACK_CSV = 'feedback_data.csv'
-LOGIN_LOG_CSV = 'login_log.csv'  # [NEW] ไฟล์บันทึกประวัติการเข้าใช้งาน
+LOGIN_LOG_CSV = 'login_log.csv'
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
@@ -211,18 +218,57 @@ def delete_feedback_entry(index):
 # [NEW] ฟังก์ชันโหลดและบันทึก Log การเข้าสู่ระบบ
 def load_login_log():
     if not os.path.exists(LOGIN_LOG_CSV):
-        df = pd.DataFrame(columns=["timestamp", "device_name", "status"])
+        df = pd.DataFrame(columns=["timestamp", "declared_name", "real_device_info", "status"])
         df.to_csv(LOGIN_LOG_CSV, index=False)
         return df
     return pd.read_csv(LOGIN_LOG_CSV)
 
 
-def save_login_log(device_name, status="Success"):
+def save_login_log(declared_name, real_device_info, status="Success"):
     df = load_login_log()
     timestamp = get_thai_time().strftime("%d/%m/%Y %H:%M:%S")
-    new_entry = {"timestamp": timestamp, "device_name": device_name, "status": status}
+    # Clean CSV injection
+    real_device_info = str(real_device_info).replace(",", " ")
+
+    new_entry = {
+        "timestamp": timestamp,
+        "declared_name": declared_name,
+        "real_device_info": real_device_info,
+        "status": status
+    }
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
     df.to_csv(LOGIN_LOG_CSV, index=False)
+
+
+# [NEW] ฟังก์ชันแปล User Agent ให้เป็นภาษาคน
+def parse_user_agent(ua_string):
+    if not ua_string: return "Unknown Device"
+    ua_string = str(ua_string)
+    device = "PC/Generic"
+    if "iPhone" in ua_string:
+        device = "iPhone"
+    elif "iPad" in ua_string:
+        device = "iPad"
+    elif "Android" in ua_string:
+        device = "Android"
+    elif "Macintosh" in ua_string:
+        device = "Mac OS"
+    elif "Windows" in ua_string:
+        device = "Windows PC"
+
+    browser = "Unknown Browser"
+    if "Chrome" in ua_string and "Edg" not in ua_string:
+        browser = "Chrome"
+    elif "Safari" in ua_string and "Chrome" not in ua_string:
+        browser = "Safari"
+    elif "Edg" in ua_string:
+        browser = "Edge"
+    elif "Firefox" in ua_string:
+        browser = "Firefox"
+    elif "Line" in ua_string:
+        browser = "Line App"
+
+    return f"{device} ({browser}) - [Raw: {ua_string[:30]}...]"
 
 
 def save_image(uploaded_file):
@@ -500,46 +546,57 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [UPDATE] ช่องระบุตัวตนและ Password
+    # [NEW] ตรวจจับ User Agent จริงด้วย JavaScript
+    real_ua = st_javascript("navigator.userAgent")
+    parsed_device = parse_user_agent(real_ua)
+
     with st.container(border=True):
-        st.info("ระบุชื่อผู้ใช้หรืออุปกรณ์เพื่อบันทึกประวัติการใช้งาน")
-        admin_device = st.text_input("👤 ผู้ใช้งาน / อุปกรณ์ (เช่น Boss iPhone)", placeholder="ระบุชื่อผู้ใช้งาน...")
+        st.info("ระบบจะบันทึกทั้ง 'ชื่อที่กรอก' และ 'อุปกรณ์จริงที่ตรวจพบ' เพื่อความปลอดภัย")
+        admin_device = st.text_input("👤 ผู้ใช้งาน (ชื่อเล่น)", placeholder="ระบุชื่อผู้ใช้งาน...")
         password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
+
+        # แสดง Device ที่จับได้ (เพื่อให้ User รู้ตัวว่าระบบรู้)
+        if real_ua:
+            st.caption(f"📡 ระบบตรวจพบอุปกรณ์จริง: **{parsed_device}**")
 
     if password_input:
         if password_input == ADMIN_PASSWORD:
-            # ใช้ชื่อที่กรอก หรือถ้าไม่กรอกให้ใช้ Unknown
-            final_device_name = admin_device if admin_device else "Unknown Device"
+            declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
 
-            # 1. แจ้งเตือนทาง Email
+            # 1. แจ้งเตือนทาง Email (รวมข้อมูลจริง + ข้อมูลที่กรอก)
             thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
-            send_email_notification(
-                "🔐 Alert: มีการ Login เข้าสู่ระบบ Admin",
-                f"เวลา: {thai_now}\nผู้ใช้งาน/อุปกรณ์: {final_device_name}\nสถานะ: สำเร็จ ✅"
-            )
+            email_body = f"""
+            เวลา: {thai_now}
+            👤 ชื่อที่กรอกมา: {declared_name}
+            📱 อุปกรณ์จริงที่ตรวจพบ: {parsed_device}
+            -------------------------------------
+            Raw UserAgent: {real_ua}
+            """
+            send_email_notification("🔐 Alert: มีการ Login (Success)", email_body)
 
             # 2. บันทึก Log ลง CSV
-            save_login_log(final_device_name, "Success")
+            save_login_log(declared_name, parsed_device, "Success")
 
-            st.success(f"ยินดีต้อนรับคุณ {final_device_name} ✅")
+            st.success(f"ยินดีต้อนรับคุณ {declared_name} ✅")
             time.sleep(1)
             st.session_state.app_mode = 'admin_dashboard'
             st.rerun()
 
         elif password_input != "":
             st.error("รหัสผิด! ❌")
-            # ถ้าใส่ผิดซ้ำ (ป้องกันการส่งเมลรัวๆ ให้ส่งเมื่อค่าเปลี่ยน)
             if st.session_state.last_wrong_pass != password_input:
                 thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
-                final_device_name = admin_device if admin_device else "Unknown Device"
+                declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
 
-                send_email_notification(
-                    "🚨 Alert: รหัส Admin ผิด",
-                    f"เวลา: {thai_now}\nผู้ใช้งาน/อุปกรณ์: {final_device_name}\nรหัสที่ลองใส่: {password_input}\nสถานะ: ล้มเหลว ❌"
-                )
+                email_body = f"""
+                เวลา: {thai_now}
+                👤 ชื่อที่กรอกมา: {declared_name}
+                📱 อุปกรณ์จริงที่ตรวจพบ: {parsed_device}
+                🔑 รหัสที่ลองใส่: {password_input}
+                """
+                send_email_notification("🚨 Alert: รหัส Admin ผิด (Failed)", email_body)
 
-                # บันทึก Log ผิดพลาดด้วย
-                save_login_log(final_device_name, "Failed (Wrong Password)")
+                save_login_log(declared_name, parsed_device, "Failed")
                 st.session_state.last_wrong_pass = password_input
 
 elif st.session_state.app_mode == 'admin_dashboard':
@@ -548,7 +605,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [UPDATE] เพิ่ม Tab 8 สำหรับดู Log
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู",
         "📊 ยอดขาย", "📞 ติดต่อ", "💬 อ่านรีวิว", "📜 ประวัติ Login"
@@ -725,15 +781,17 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.info("ยังไม่มีรีวิวครับ")
 
-    # [NEW] Tab 8: ประวัติการเข้าสู่ระบบ
+    # [UPDATED] Tab 8: ประวัติการเข้าสู่ระบบแบบละเอียด
     with tab8:
         st.subheader("📜 ประวัติการเข้าสู่ระบบ (Login Log)")
+        st.info("ตารางนี้แสดงชื่อที่กรอกเทียบกับอุปกรณ์จริง")
         log_df = load_login_log()
         if not log_df.empty:
             # กลับด้านเพื่อให้เห็นล่าสุดก่อน
             st.dataframe(log_df.iloc[::-1], hide_index=True, use_container_width=True)
             if st.button("🗑️ ล้างประวัติทั้งหมด"):
-                pd.DataFrame(columns=["timestamp", "device_name", "status"]).to_csv(LOGIN_LOG_CSV, index=False)
+                pd.DataFrame(columns=["timestamp", "declared_name", "real_device_info", "status"]).to_csv(LOGIN_LOG_CSV,
+                                                                                                          index=False)
                 st.rerun()
         else:
             st.info("ยังไม่มีประวัติการเข้าใช้งาน")
