@@ -1,6 +1,3 @@
 streamlit
 pandas
 pytz
-streamlit-javascript
-install
-pip
