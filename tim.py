@@ -11,6 +11,7 @@ import pytz
 from collections import Counter
 import base64
 import re
+import json
 
 # [NEW] ต้องลง pip install streamlit-javascript ก่อนใช้งาน
 try:
@@ -227,7 +228,6 @@ def load_login_log():
 def save_login_log(declared_name, real_device_info, status="Success"):
     df = load_login_log()
     timestamp = get_thai_time().strftime("%d/%m/%Y %H:%M:%S")
-    # Clean CSV injection
     real_device_info = str(real_device_info).replace(",", " ")
 
     new_entry = {
@@ -240,35 +240,83 @@ def save_login_log(declared_name, real_device_info, status="Success"):
     df.to_csv(LOGIN_LOG_CSV, index=False)
 
 
-# [NEW] ฟังก์ชันแปล User Agent ให้เป็นภาษาคน
-def parse_user_agent(ua_string):
+# [NEW] ฟังก์ชันขั้นสูง: เดารุ่นจาก UserAgent + ขนาดหน้าจอ
+def estimate_device_model(ua_string, width, height):
     if not ua_string: return "Unknown Device"
     ua_string = str(ua_string)
-    device = "PC/Generic"
-    if "iPhone" in ua_string:
-        device = "iPhone"
-    elif "iPad" in ua_string:
-        device = "iPad"
-    elif "Android" in ua_string:
-        device = "Android"
-    elif "Macintosh" in ua_string:
-        device = "Mac OS"
-    elif "Windows" in ua_string:
-        device = "Windows PC"
+    width = int(width) if width else 0
+    height = int(height) if height else 0
 
-    browser = "Unknown Browser"
-    if "Chrome" in ua_string and "Edg" not in ua_string:
+    # สลับด้านถ้าเป็นแนวนอน (เพื่อให้เทียบกับมาตรฐานแนวตั้งได้)
+    if width > height:
+        width, height = height, width
+
+    device_guess = "PC/Generic"
+
+    # 1. ตรวจสอบ iOS (iPhone/iPad)
+    if "iPhone" in ua_string:
+        device_guess = "iPhone (Unknown Model)"
+        # เทียบขนาดหน้าจอ (Logical Resolution)
+        if width == 390 and height == 844:
+            device_guess = "iPhone 12 / 13 / 14"
+        elif width == 393 and height == 852:
+            device_guess = "iPhone 14 Pro / 15 / 16"
+        elif width == 428 and height == 926:
+            device_guess = "iPhone 12/13/14 Pro Max"
+        elif width == 430 and height == 932:
+            device_guess = "iPhone 14/15/16 Pro Max"
+        elif width == 375 and height == 812:
+            device_guess = "iPhone X / XS / 11 Pro / 12 Mini"
+        elif width == 414 and height == 896:
+            device_guess = "iPhone XR / 11 / XS Max"
+        elif width == 375 and height == 667:
+            device_guess = "iPhone SE / 6 / 7 / 8"
+        elif width == 414 and height == 736:
+            device_guess = "iPhone 6/7/8 Plus"
+
+    elif "iPad" in ua_string:
+        device_guess = "iPad"
+
+    # 2. ตรวจสอบ Android
+    elif "Android" in ua_string:
+        device_guess = "Android"
+        # พยายามหาชื่อรุ่นจาก User Agent (เช่น SM-G990, Pixel 6)
+        match = re.search(r"\b([A-Z]{2,}-\w+|\w+\sBuild)", ua_string)  # Pattern ทั่วไปของรหัสรุ่น
+        if match:
+            # ดึงข้อความมาแล้วลบคำว่า Build ออก
+            possible_model = match.group(0).replace(" Build", "")
+            device_guess = f"Android (Model: {possible_model})"
+        else:
+            # ถ้าหาไม่เจอ ให้เอาคำระหว่าง ; ... Build มา
+            try:
+                parts = ua_string.split(';')
+                for part in parts:
+                    if "Build/" in part:
+                        model = part.split("Build/")[0].strip()
+                        device_guess = f"Android ({model})"
+                        break
+            except:
+                pass
+
+    elif "Macintosh" in ua_string:
+        device_guess = "Mac OS"
+    elif "Windows" in ua_string:
+        device_guess = "Windows PC"
+
+    # Browser Check
+    browser = "Browser"
+    if "Line" in ua_string:
+        browser = "Line App"
+    elif "FBAN" in ua_string or "FBAV" in ua_string:
+        browser = "Facebook App"
+    elif "Chrome" in ua_string and "Edg" not in ua_string:
         browser = "Chrome"
     elif "Safari" in ua_string and "Chrome" not in ua_string:
         browser = "Safari"
-    elif "Edg" in ua_string:
-        browser = "Edge"
     elif "Firefox" in ua_string:
         browser = "Firefox"
-    elif "Line" in ua_string:
-        browser = "Line App"
 
-    return f"{device} ({browser}) - [Raw: {ua_string[:30]}...]"
+    return f"{device_guess} [{browser}] (Res: {width}x{height})"
 
 
 def save_image(uploaded_file):
@@ -546,18 +594,42 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [NEW] ตรวจจับ User Agent จริงด้วย JavaScript
-    real_ua = st_javascript("navigator.userAgent")
-    parsed_device = parse_user_agent(real_ua)
+    # [UPDATED] ดึงข้อมูล UserAgent และ Screen Size ด้วย JS
+    # ต้องดึงค่าเป็น JSON แล้วมา parse ใน Python
+    js_code = """
+    (function() {
+        return JSON.stringify({
+            ua: navigator.userAgent,
+            width: window.screen.width,
+            height: window.screen.height
+        });
+    })();
+    """
+    device_data_json = st_javascript(js_code)
+
+    device_info_str = "Waiting for device info..."
+    real_ua = ""
+    scr_w = 0
+    scr_h = 0
+
+    if device_data_json:
+        try:
+            d = json.loads(device_data_json)
+            real_ua = d.get('ua', '')
+            scr_w = d.get('width', 0)
+            scr_h = d.get('height', 0)
+            device_info_str = estimate_device_model(real_ua, scr_w, scr_h)
+        except:
+            pass
 
     with st.container(border=True):
         st.info("ระบบจะบันทึกทั้ง 'ชื่อที่กรอก' และ 'อุปกรณ์จริงที่ตรวจพบ' เพื่อความปลอดภัย")
         admin_device = st.text_input("👤 ผู้ใช้งาน (ชื่อเล่น)", placeholder="ระบุชื่อผู้ใช้งาน...")
         password_input = st.text_input("🔑 ใส่รหัสผ่าน", type="password")
 
-        # แสดง Device ที่จับได้ (เพื่อให้ User รู้ตัวว่าระบบรู้)
-        if real_ua:
-            st.caption(f"📡 ระบบตรวจพบอุปกรณ์จริง: **{parsed_device}**")
+        # แสดง Device ที่จับได้
+        if device_data_json:
+            st.caption(f"📡 ระบบจับได้ว่าเป็น: **{device_info_str}**")
 
     if password_input:
         if password_input == ADMIN_PASSWORD:
@@ -568,14 +640,15 @@ if st.session_state.app_mode == 'admin_login':
             email_body = f"""
             เวลา: {thai_now}
             👤 ชื่อที่กรอกมา: {declared_name}
-            📱 อุปกรณ์จริงที่ตรวจพบ: {parsed_device}
+            📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
             -------------------------------------
             Raw UserAgent: {real_ua}
+            Resolution: {scr_w} x {scr_h}
             """
             send_email_notification("🔐 Alert: มีการ Login (Success)", email_body)
 
             # 2. บันทึก Log ลง CSV
-            save_login_log(declared_name, parsed_device, "Success")
+            save_login_log(declared_name, device_info_str, "Success")
 
             st.success(f"ยินดีต้อนรับคุณ {declared_name} ✅")
             time.sleep(1)
@@ -591,12 +664,12 @@ if st.session_state.app_mode == 'admin_login':
                 email_body = f"""
                 เวลา: {thai_now}
                 👤 ชื่อที่กรอกมา: {declared_name}
-                📱 อุปกรณ์จริงที่ตรวจพบ: {parsed_device}
+                📱 อุปกรณ์จริงที่ตรวจพบ: {device_info_str}
                 🔑 รหัสที่ลองใส่: {password_input}
                 """
                 send_email_notification("🚨 Alert: รหัส Admin ผิด (Failed)", email_body)
 
-                save_login_log(declared_name, parsed_device, "Failed")
+                save_login_log(declared_name, device_info_str, "Failed")
                 st.session_state.last_wrong_pass = password_input
 
 elif st.session_state.app_mode == 'admin_dashboard':
@@ -781,10 +854,10 @@ elif st.session_state.app_mode == 'admin_dashboard':
         else:
             st.info("ยังไม่มีรีวิวครับ")
 
-    # [UPDATED] Tab 8: ประวัติการเข้าสู่ระบบแบบละเอียด
+    # [UPDATED] Tab 8: ประวัติการเข้าสู่ระบบแบบละเอียด (แสดงรุ่น)
     with tab8:
         st.subheader("📜 ประวัติการเข้าสู่ระบบ (Login Log)")
-        st.info("ตารางนี้แสดงชื่อที่กรอกเทียบกับอุปกรณ์จริง")
+        st.info("ตารางนี้แสดงชื่อที่กรอกเทียบกับอุปกรณ์จริง (เดารุ่นจากขนาดหน้าจอ)")
         log_df = load_login_log()
         if not log_df.empty:
             # กลับด้านเพื่อให้เห็นล่าสุดก่อน
