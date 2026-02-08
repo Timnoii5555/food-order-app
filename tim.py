@@ -43,8 +43,26 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 
 KITCHEN_LIMIT = 10
 
+# ================= 2. เริ่มต้น UI & State (ย้ายมาไว้ตรงนี้เพื่อแก้ Error) =================
+st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# ================= 2. ฟังก์ชันจัดการข้อมูล =================
+# [CRITICAL FIX] ประกาศ State ก่อนเรียกใช้เสมอ
+if 'basket' not in st.session_state: st.session_state.basket = []
+if 'page' not in st.session_state: st.session_state.page = 'menu'
+if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
+if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
+if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
+if 'user_table' not in st.session_state: st.session_state.user_table = None
+if 'user_name' not in st.session_state: st.session_state.user_name = ""
+if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
+if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
+if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
+if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
+if 'menu_mtime' not in st.session_state: st.session_state.menu_mtime = 0
+if 'last_refresh_timestamp' not in st.session_state: st.session_state.last_refresh_timestamp = 0
+
+
+# ================= 3. ฟังก์ชันจัดการข้อมูล =================
 
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
@@ -62,10 +80,7 @@ def check_system_updates():
                 content = f.read().strip()
                 if content:
                     signal_time = float(content)
-
-                    if 'last_refresh_timestamp' not in st.session_state:
-                        st.session_state.last_refresh_timestamp = signal_time
-                    elif signal_time > st.session_state.last_refresh_timestamp:
+                    if signal_time > st.session_state.last_refresh_timestamp:
                         st.session_state.last_refresh_timestamp = signal_time
                         should_rerun = True
         except:
@@ -75,9 +90,7 @@ def check_system_updates():
     if os.path.exists(MENU_CSV):
         try:
             current_mtime = os.path.getmtime(MENU_CSV)
-            if 'menu_mtime' not in st.session_state:
-                st.session_state.menu_mtime = current_mtime
-            elif current_mtime > st.session_state.menu_mtime:
+            if current_mtime > st.session_state.menu_mtime:
                 st.session_state.menu_mtime = current_mtime
                 st.toast("📢 เมนูมีการเปลี่ยนแปลง!", icon="🍲")
                 should_rerun = True
@@ -367,11 +380,9 @@ def sanitize_link(link):
     return "https://" + link
 
 
-# ================= 3. UI & CSS =================
-st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
+# ================= 4. Logic & Display =================
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (แก้ปัญหา Refresh แล้วชื่อหาย)
-# ต้องทำก่อน Check Update เพื่อให้ถ้ามัน Rerun มันจะจำค่าได้
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (ต้องทำหลังประกาศ State แต่ก่อนเข้า Logic)
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
@@ -382,7 +393,50 @@ if 'name' in st.query_params and 'table' in st.query_params:
 if check_system_updates():
     st.rerun()
 
-# JavaScript Poller: ทำให้ Client Side ตรวจจับความเปลี่ยนแปลงตลอดเวลา
+daily_cleanup()
+
+menu_df = load_menu()
+tables_df = load_tables()
+orders_df = load_orders()
+contact_info = load_contacts()
+queue_df = load_queue()
+feedback_df = load_feedback()
+
+waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
+busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
+kitchen_load = len(waiting_orders)
+
+# [LOGIC] คำนวณสิทธิ์การสั่ง (Queue Bypass Logic)
+is_queue_mode = False
+can_order = True
+waiting_q_count = 0
+
+# ถ้าครัวแน่น
+if kitchen_load >= KITCHEN_LIMIT:
+    is_queue_mode = True
+    can_order = False
+
+    # [NEW] เช็คว่าโต๊ะนี้เป็นลูกค้าเก่าที่มี Order อยู่แล้วหรือไม่ (VIP Pass)
+    if st.session_state.user_table in busy_tables:
+        can_order = True  # อนุญาตให้สั่งเพิ่มได้
+        is_queue_mode = False  # ปิดโหมดคิวสำหรับโต๊ะนี้
+
+if not queue_df.empty:
+    if st.session_state.my_queue_id:
+        try:
+            my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
+            waiting_q_count = my_idx
+            if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
+                if kitchen_load < KITCHEN_LIMIT or (st.session_state.user_table in busy_tables):
+                    can_order = True
+                    is_queue_mode = False
+                else:
+                    can_order = False
+                    is_queue_mode = True
+        except:
+            waiting_q_count = len(queue_df)
+
+        # JavaScript Poller: บังคับให้ Python Script ทำงานทุก 1.5 วินาที เพื่อเช็คค่า
 components.html(
     """
     <script>
@@ -444,115 +498,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# ================= 4. โหลดข้อมูล & State =================
-if 'basket' not in st.session_state: st.session_state.basket = []
-if 'page' not in st.session_state: st.session_state.page = 'menu'
-if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
-if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
-if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
-if 'user_table' not in st.session_state: st.session_state.user_table = None
-if 'user_name' not in st.session_state: st.session_state.user_name = ""
-if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
-
-# [NEW] State สำหรับระบบ OTP 2 ขั้นตอน
-if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
-if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
-if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
-
-daily_cleanup()
-
-menu_df = load_menu()
-tables_df = load_tables()
-orders_df = load_orders()
-contact_info = load_contacts()
-queue_df = load_queue()
-feedback_df = load_feedback()
-
-waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
-busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
-kitchen_load = len(waiting_orders)
-
-# [LOGIC] คำนวณสิทธิ์การสั่ง (Queue Bypass Logic)
-is_queue_mode = False
-can_order = True
-waiting_q_count = 0
-
-# ถ้าครัวแน่น
-if kitchen_load >= KITCHEN_LIMIT:
-    is_queue_mode = True
-    can_order = False
-
-    # [NEW] เช็คว่าโต๊ะนี้เป็นลูกค้าเก่าที่มี Order อยู่แล้วหรือไม่ (VIP Pass)
-    if st.session_state.user_table in busy_tables:
-        can_order = True  # อนุญาตให้สั่งเพิ่มได้
-        is_queue_mode = False  # ปิดโหมดคิวสำหรับโต๊ะนี้
-
-if not queue_df.empty:
-    if st.session_state.my_queue_id:
-        try:
-            my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
-            waiting_q_count = my_idx
-            if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
-                if kitchen_load < KITCHEN_LIMIT or (st.session_state.user_table in busy_tables):
-                    can_order = True
-                    is_queue_mode = False
-                else:
-                    can_order = False
-                    is_queue_mode = True
-        except:
-            waiting_q_count = len(queue_df)
-
-        # ================= 5. ส่วนหัวและเมนู =================
-c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
-with c_logo:
-    if os.path.exists("logo.png"):
-        st.image("logo.png", width=320)
-    else:
-        st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
-with c_name:
-    st.markdown(f"""
-        <div style="display: flex; flex-direction: column; justify-content: center; height: 220px;">
-            <h1 style='color:#3E2723; font-size:50px; margin:0; line-height:1; font-weight:800;'>TimNoi Shabu</h1>
-            <p style='color:#8D6E63; font-size:20px; margin:5px 0 0 0; font-weight:bold;'>ร้านนี้ไม่มีหมูเพราะที่เห็นเป็นเนื้อหมา</p>
-            <div style='margin-top:15px; border-top: 2px solid #D7CCC8; padding-top:10px;'>
-                <p style='color:#5D4037; font-size:16px; margin:0;'>🕒 เปิดบริการ: 00:00 - 23:59 น.</p>
-                <p style='color:#5D4037; font-size:16px; margin:0;'>📞 โทร: {contact_info.get('phone', '-')}</p>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-with c_menu:
-    st.write("")
-    with st.popover("☰ เมนู", use_container_width=True):
-        st.markdown("### เมนูหลัก")
-        if st.button("🏠 หน้าลูกค้า", use_container_width=True):
-            st.session_state.app_mode = 'customer'
-            st.rerun()
-        if st.button("💬 เขียนติชม/สมุดเยี่ยม", use_container_width=True):
-            st.session_state.app_mode = 'customer'
-            st.session_state.page = 'feedback'
-            st.rerun()
-        if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
-            st.session_state.app_mode = 'admin_login'
-            st.session_state.login_phase = 1
-            st.rerun()
-        st.markdown("---")
-        if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
-        st.markdown("---")
-        st.markdown("### 📞 ช่องทางติดต่อ")
-        fb_url = sanitize_link(contact_info.get('facebook', ''))
-        ig_url = sanitize_link(contact_info.get('instagram', ''))
-        line_id = contact_info.get('line', '-')
-        fb_icon = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png"
-        ig_icon = "https://cdn-icons-png.flaticon.com/512/3955/3955024.png"
-        line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
-        st.markdown(f"""
-        <div class="contact-row"><img src="{fb_icon}" class="contact-icon"><a href="{fb_url}" target="_blank" class="contact-link">Facebook</a></div>
-        <div class="contact-row"><img src="{ig_icon}" class="contact-icon"><a href="{ig_url}" target="_blank" class="contact-link">Instagram</a></div>
-        <div class="contact-row"><img src="{line_icon}" class="contact-icon"><span class="contact-link" style="color:#555;">Line: {line_id}</span></div>
-        """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # ================= 6. Controller =================
 
