@@ -1128,25 +1128,4 @@ else:
                     status = save_order({
                         "เวลา": now_str,
                         "โต๊ะ": st.session_state.user_table,
-                        "ลูกค้า": st.session_state.user_name,
-                        "รายการอาหาร": items,
-                        "ยอดรวม": total_price,
-                        "หมายเหตุ": note,
-                        "สถานะ": "waiting"
-                    })
-
-                    body_intro = "🔔 Order เพิ่มเติม" if status == "merged" else "🔔 Order ใหม่"
-                    body = f"โต๊ะ: {st.session_state.user_table}\nลูกค้า: {st.session_state.user_name}\nเวลา: {now_str}\n\n{items}\n\nสั่งรอบนี้: {total_price} บาท\nNote: {note}"
-                    send_email_notification(f"{body_intro}: {st.session_state.user_table}", body)
-
-                    st.session_state.basket = []
-                    st.session_state.page = 'menu'
-                    st.balloons()
-                    st.success("ส่งออเดอร์แล้ว!")
-                    time.sleep(2)
-                    st.rerun()
-        else:
-            st.info("ตะกร้ายังว่างอยู่เลย เลือกอาหารก่อนนะครับ")
-            if st.button("ไปเลือกอาหาร"):
-                st.session_state.page = 'menu'
-                st.rerun()
+                       .rerun()
