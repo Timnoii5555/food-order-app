@@ -14,34 +14,13 @@ import re
 import json
 import random
 
-# ================= 1. ตั้งค่าหน้าเว็บ (ต้องอยู่บรรทัดแรกสุดเสมอ) =================
-st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
-
-# ================= 2. สร้างตัวแปรระบบ (Session State) ให้ครบก่อนใช้งาน =================
-if 'basket' not in st.session_state: st.session_state.basket = []
-if 'page' not in st.session_state: st.session_state.page = 'menu'
-if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
-if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
-if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
-if 'user_table' not in st.session_state: st.session_state.user_table = None
-if 'user_name' not in st.session_state: st.session_state.user_name = ""
-if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
-
-# State สำหรับระบบ Login 2FA (OTP)
-if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
-if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
-if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
-
-# State สำหรับระบบ Auto-Refresh
-if 'menu_mtime' not in st.session_state: st.session_state.menu_mtime = 0
-if 'last_refresh_timestamp' not in st.session_state: st.session_state.last_refresh_timestamp = 0
-
-# ================= 3. Config & Library Check =================
+# ================= 1. ตั้งค่าระบบ (Configuration) =================
 try:
     SENDER_EMAIL = st.secrets["email"]["user"]
     SENDER_PASSWORD = st.secrets["email"]["password"]
     ADMIN_PASSWORD = st.secrets["admin"]["password"]
 except:
+    # ค่า Default สำหรับทดสอบ (ควรเปลี่ยนเป็นของคุณเอง)
     SENDER_EMAIL = 'jaskaikai4@gmail.com'
     SENDER_PASSWORD = 'zqyx nqdk ygww drpp'
     ADMIN_PASSWORD = '090090op'
@@ -66,7 +45,7 @@ if not os.path.exists(BANNER_FOLDER): os.makedirs(BANNER_FOLDER)
 KITCHEN_LIMIT = 10
 
 
-# ================= 4. ฟังก์ชันจัดการข้อมูล (Functions) =================
+# ================= 2. ฟังก์ชันจัดการข้อมูล =================
 
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
@@ -81,12 +60,13 @@ def check_system_updates():
     if os.path.exists(REFRESH_SIGNAL_FILE):
         try:
             with open(REFRESH_SIGNAL_FILE, 'r') as f:
-                content = f.read().strip()
-                if content:
-                    signal_time = float(content)
-                    if signal_time > st.session_state.last_refresh_timestamp:
-                        st.session_state.last_refresh_timestamp = signal_time
-                        should_rerun = True
+                signal_time = float(f.read().strip())
+
+            if 'last_refresh_timestamp' not in st.session_state:
+                st.session_state.last_refresh_timestamp = signal_time
+            elif signal_time > st.session_state.last_refresh_timestamp:
+                st.session_state.last_refresh_timestamp = signal_time
+                should_rerun = True
         except:
             pass
 
@@ -94,7 +74,9 @@ def check_system_updates():
     if os.path.exists(MENU_CSV):
         try:
             current_mtime = os.path.getmtime(MENU_CSV)
-            if current_mtime > st.session_state.menu_mtime:
+            if 'menu_mtime' not in st.session_state:
+                st.session_state.menu_mtime = current_mtime
+            elif current_mtime > st.session_state.menu_mtime:
                 st.session_state.menu_mtime = current_mtime
                 st.toast("📢 เมนูมีการเปลี่ยนแปลง!", icon="🍲")
                 should_rerun = True
@@ -384,10 +366,10 @@ def sanitize_link(link):
     return "https://" + link
 
 
-# ================= 5. เริ่มต้นการทำงาน (Logic Start) =================
+# ================= 3. UI & CSS =================
+st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (แก้ปัญหา Refresh แล้วชื่อหาย)
-# *ต้องวางตรงนี้* (หลังจากประกาศ State และ Function แล้ว)
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
@@ -397,6 +379,84 @@ if 'name' in st.query_params and 'table' in st.query_params:
 # [SYNC] ตรวจสอบการอัปเดต (รีเฟรชหน้าจออัตโนมัติหากมีการเปลี่ยนแปลง)
 if check_system_updates():
     st.rerun()
+
+# JavaScript Poller: บังคับให้ Python Script ทำงานทุก 2 วินาที เพื่อเช็คค่า
+components.html(
+    """
+    <script>
+        setInterval(function(){
+            window.parent.document.querySelector(".stApp").dispatchEvent(new Event("change"));
+        }, 2000);
+    </script>
+    """,
+    height=0,
+)
+
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;500;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Sarabun', sans-serif; background-color: #FDFBF7; }
+    header, footer {visibility: hidden;}
+    .stButton>button { border-radius: 8px; font-weight: bold; background-color: #8D6E63; color: white; border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: 0.3s; }
+    .stButton>button:hover { background-color: #6D4C41; color: #FFECB3; transform: scale(1.02); }
+    .customer-queue-box { background: linear-gradient(135deg, #3E2723 0%, #5D4037 100%); color: white; padding: 20px; border-radius: 16px; text-align: center; margin-bottom: 20px; box-shadow: 0 8px 16px rgba(0,0,0,0.2); border: 2px solid #D7CCC8; }
+    .queue-title { font-size: 18px; font-weight: bold; color: #FFECB3; text-transform: uppercase; }
+    .queue-big-number { font-size: 56px; font-weight: 800; line-height: 1; color: white; margin: 10px 0; }
+    .queue-empty { background-color: #E8F5E9; border: 2px dashed #4CAF50; color: #2E7D32; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
+    .queue-full { background-color: #FFEBEE; border: 2px dashed #EF5350; color: #C62828; padding: 15px; border-radius: 12px; text-align: center; font-weight: bold; }
+    .sales-box { background-color: #FFF3E0; border: 2px solid #FFB74D; color: #E65100; padding: 20px; border-radius: 12px; text-align: center; margin-bottom: 20px; }
+    .sales-number { font-size: 48px; font-weight: bold; color: #BF360C; }
+    .out-of-stock { filter: grayscale(100%); opacity: 0.6; }
+    h1, h2, h3 { color: #3E2723 !important; }
+    .contact-row { display: flex; align-items: center; margin-bottom: 12px; background-color: white; padding: 12px; border-radius: 12px; border: 1px solid #eee; transition: all 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    .contact-row:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-color: #8D6E63; }
+    .contact-icon { width: 32px; height: 32px; margin-right: 15px; }
+    .contact-link { text-decoration: none; color: #333; font-weight: bold; font-size: 16px; flex-grow: 1; }
+
+    @keyframes pulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    .warning-box {
+        background-color: #FFEBEE;
+        border-left: 5px solid #F44336;
+        padding: 15px;
+        border-radius: 5px;
+        color: #C62828;
+        font-weight: bold;
+        text-align: center;
+        animation: pulse 2s infinite;
+        margin-bottom: 20px;
+    }
+    .kitchen-status-box {
+        background-color: #E8F5E9; 
+        border: 2px solid #4CAF50; 
+        color: #2E7D32; 
+        padding: 15px; 
+        border-radius: 12px; 
+        text-align: center; 
+        font-weight: bold; 
+        margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ================= 4. โหลดข้อมูล & State =================
+if 'basket' not in st.session_state: st.session_state.basket = []
+if 'page' not in st.session_state: st.session_state.page = 'menu'
+if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
+if 'last_wrong_pass' not in st.session_state: st.session_state.last_wrong_pass = ""
+if 'my_queue_id' not in st.session_state: st.session_state.my_queue_id = None
+if 'user_table' not in st.session_state: st.session_state.user_table = None
+if 'user_name' not in st.session_state: st.session_state.user_name = ""
+if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
+
+# [NEW] State สำหรับระบบ OTP 2 ขั้นตอน
+if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
+if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
+if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
 
 daily_cleanup()
 
@@ -411,20 +471,13 @@ waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
 kitchen_load = len(waiting_orders)
 
-# [LOGIC] คำนวณสิทธิ์การสั่ง (Queue Bypass Logic)
 is_queue_mode = False
 can_order = True
 waiting_q_count = 0
 
-# ถ้าครัวแน่น
 if kitchen_load >= KITCHEN_LIMIT:
     is_queue_mode = True
     can_order = False
-
-    # [NEW] เช็คว่าโต๊ะนี้เป็นลูกค้าเก่าที่มี Order อยู่แล้วหรือไม่ (VIP Pass)
-    if st.session_state.user_table in busy_tables:
-        can_order = True  # อนุญาตให้สั่งเพิ่มได้
-        is_queue_mode = False  # ปิดโหมดคิวสำหรับโต๊ะนี้
 
 if not queue_df.empty:
     if st.session_state.my_queue_id:
@@ -432,7 +485,7 @@ if not queue_df.empty:
             my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
             waiting_q_count = my_idx
             if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
-                if kitchen_load < KITCHEN_LIMIT or (st.session_state.user_table in busy_tables):
+                if kitchen_load < KITCHEN_LIMIT:
                     can_order = True
                     is_queue_mode = False
                 else:
@@ -441,19 +494,58 @@ if not queue_df.empty:
         except:
             waiting_q_count = len(queue_df)
 
-        # JavaScript Poller: บังคับให้ Python Script ทำงานทุก 1.5 วินาที เพื่อเช็คค่า
-components.html(
-    """
-    <script>
-        setInterval(function(){
-            window.parent.document.querySelector(".stApp").dispatchEvent(new Event("change"));
-        }, 1500);
-    </script>
-    """,
-    height=0,
-)
+        # ================= 5. ส่วนหัวและเมนู =================
+c_logo, c_name, c_menu = st.columns([1.3, 2, 0.5])
+with c_logo:
+    if os.path.exists("logo.png"):
+        st.image("logo.png", width=320)
+    else:
+        st.markdown("<h1>🍲</h1>", unsafe_allow_html=True)
+with c_name:
+    st.markdown(f"""
+        <div style="display: flex; flex-direction: column; justify-content: center; height: 220px;">
+            <h1 style='color:#3E2723; font-size:50px; margin:0; line-height:1; font-weight:800;'>TimNoi Shabu</h1>
+            <p style='color:#8D6E63; font-size:20px; margin:5px 0 0 0; font-weight:bold;'>ร้านนี้ไม่มีหมูเพราะที่เห็นเป็นเนื้อหมา</p>
+            <div style='margin-top:15px; border-top: 2px solid #D7CCC8; padding-top:10px;'>
+                <p style='color:#5D4037; font-size:16px; margin:0;'>🕒 เปิดบริการ: 00:00 - 23:59 น.</p>
+                <p style='color:#5D4037; font-size:16px; margin:0;'>📞 โทร: {contact_info.get('phone', '-')}</p>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+with c_menu:
+    st.write("")
+    with st.popover("☰ เมนู", use_container_width=True):
+        st.markdown("### เมนูหลัก")
+        if st.button("🏠 หน้าลูกค้า", use_container_width=True):
+            st.session_state.app_mode = 'customer'
+            st.rerun()
+        if st.button("💬 เขียนติชม/สมุดเยี่ยม", use_container_width=True):
+            st.session_state.app_mode = 'customer'
+            st.session_state.page = 'feedback'
+            st.rerun()
+        if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
+            st.session_state.app_mode = 'admin_login'
+            st.session_state.login_phase = 1
+            st.rerun()
+        st.markdown("---")
+        if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
+        st.markdown("---")
+        st.markdown("### 📞 ช่องทางติดต่อ")
+        fb_url = sanitize_link(contact_info.get('facebook', ''))
+        ig_url = sanitize_link(contact_info.get('instagram', ''))
+        line_id = contact_info.get('line', '-')
+        fb_icon = "https://cdn-icons-png.flaticon.com/512/5968/5968764.png"
+        ig_icon = "https://cdn-icons-png.flaticon.com/512/3955/3955024.png"
+        line_icon = "https://upload.wikimedia.org/wikipedia/commons/4/41/LINE_logo.svg"
+        st.markdown(f"""
+        <div class="contact-row"><img src="{fb_icon}" class="contact-icon"><a href="{fb_url}" target="_blank" class="contact-link">Facebook</a></div>
+        <div class="contact-row"><img src="{ig_icon}" class="contact-icon"><a href="{ig_url}" target="_blank" class="contact-link">Instagram</a></div>
+        <div class="contact-row"><img src="{line_icon}" class="contact-icon"><span class="contact-link" style="color:#555;">Line: {line_id}</span></div>
+        """, unsafe_allow_html=True)
 
-# ================= 6. Controller (Main App) =================
+st.markdown("---")
+
+# ================= 6. Controller =================
 
 if st.session_state.app_mode == 'admin_login':
     st.subheader("🔐 เข้าสู่ระบบหลังร้าน")
@@ -728,6 +820,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
 # === Customer Page ===
 else:
+    # ตรวจสอบว่ายืนยันชื่อ/โต๊ะหรือยัง
     if not st.session_state.details_confirmed:
         st.markdown("""
         <div style="background-color: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 600px; margin: auto; text-align: center;">
@@ -740,18 +833,62 @@ else:
         with col_c_center[1]:
             st.write("")
             with st.container(border=True):
+                # ---------------------------------------------------------
+                # [ส่วนที่เพิ่มใหม่] ระบบจำลูกค้าเก่า
+                # ---------------------------------------------------------
+
+                # 1. รับชื่อลูกค้าก่อน
                 c_name_input = st.text_input("👤 ชื่อลูกค้า (ชื่อเล่น)", value=st.session_state.user_name)
 
-                all_tables = tables_df['table_name'].tolist()
-                # กรองโต๊ะ: ถ้าโต๊ะนั้นไม่ยุ่ง หรือเป็นโต๊ะของฉันเอง ให้แสดง
-                available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
+                existing_table = None
+                is_returning_customer = False
 
-                curr_idx = 0
-                if st.session_state.user_table in available_tables:
-                    curr_idx = available_tables.index(st.session_state.user_table)
+                # 2. ถ้ามีการพิมพ์ชื่อ ระบบจะไปค้นใน orders_df ว่ามีชื่อนี้เปิดบิลค้างไว้ไหม
+                if c_name_input:
+                    # แปลงคอลัมน์ลูกค้าเป็น string ก่อนเปรียบเทียบเพื่อป้องกัน error
+                    orders_df['ลูกค้า'] = orders_df['ลูกค้า'].astype(str)
 
-                table_input = st.selectbox("📍 เลือกโต๊ะ", available_tables, index=curr_idx)
+                    # ค้นหา: ชื่อตรงกัน AND สถานะยังเป็น waiting (ยังไม่จ่าย)
+                    match_order = orders_df[
+                        (orders_df['ลูกค้า'] == c_name_input) &
+                        (orders_df['สถานะ'] == 'waiting')
+                        ]
 
+                    if not match_order.empty:
+                        # ถ้าเจอ -> ดึงเลขโต๊ะออกมา (แปลงเป็น str เพื่อความชัวร์)
+                        existing_table = str(match_order.iloc[0]['โต๊ะ'])
+                        is_returning_customer = True
+
+                        # แสดงข้อความต้อนรับกลับ
+                        st.success(f"🎉 พบรายการสั่งค้างของ: **{c_name_input}**")
+                        st.info(f"ระบบจะเลือกโต๊ะ **{existing_table}** ให้อัตโนมัติ")
+
+                # 3. ส่วนเลือกโต๊ะ (ปรับเปลี่ยนตามเงื่อนไข)
+                if is_returning_customer:
+                    # กรณีลูกค้าเก่า: ล็อคโต๊ะเป็นโต๊ะเดิม (เลือกเปลี่ยนไม่ได้)
+                    table_input = st.selectbox("📍 โต๊ะของคุณ", [existing_table], disabled=True)
+
+                    # ปุ่มเผื่อไม่ใช่คนเดียวกัน หรืออยากเปลี่ยนชื่อ
+                    if st.button("ไม่ใช่ฉัน / เปลี่ยนชื่อใหม่"):
+                        st.session_state.user_name = ""
+                        st.rerun()
+                else:
+                    # กรณีลูกค้าใหม่: แสดงรายการโต๊ะว่างให้เลือกตามปกติ
+                    all_tables = tables_df['table_name'].astype(str).tolist()  # แปลงเป็น str
+
+                    # กรองเอาเฉพาะโต๊ะที่ว่าง (ไม่อยู่ใน busy_tables) หรือเป็นโต๊ะที่ session นี้เลือกไว้
+                    busy_str_list = [str(x) for x in busy_tables]
+                    available_tables = [t for t in all_tables if
+                                        t not in busy_str_list or t == str(st.session_state.user_table)]
+
+                    # หา index ของโต๊ะที่เคยเลือกไว้ (ถ้ามี)
+                    curr_idx = 0
+                    if str(st.session_state.user_table) in available_tables:
+                        curr_idx = available_tables.index(str(st.session_state.user_table))
+
+                    table_input = st.selectbox("📍 เลือกโต๊ะ", available_tables, index=curr_idx)
+
+                # 4. ปุ่มยืนยัน
                 if st.button("✅ ยืนยันและเริ่มสั่งอาหาร", type="primary", use_container_width=True):
                     if not c_name_input.strip():
                         st.error("กรุณาใส่ชื่อลูกค้า")
@@ -762,11 +899,18 @@ else:
                         st.session_state.user_table = table_input
                         st.session_state.details_confirmed = True
 
-                        # [PERSISTENCE FIX] บันทึกลง URL ทันที
+                        # บันทึกสถานะลง URL เพื่อให้ Refresh หน้าแล้วไม่หาย
                         st.query_params['name'] = c_name_input
                         st.query_params['table'] = table_input
-                        st.rerun()
 
+                        if is_returning_customer:
+                            st.toast(f"ยินดีต้อนรับกลับครับคุณ {c_name_input}", icon="👋")
+
+                        time.sleep(0.5)
+                        st.rerun()
+                # ---------------------------------------------------------
+
+        # ส่วนระบบคิว
         if is_queue_mode:
             st.markdown("---")
             st.warning(f"⚠️ ขณะนี้ครัวแน่น ({kitchen_load} คิว) กรุณารับบัตรคิวหากยังไม่ได้โต๊ะ")
@@ -777,9 +921,9 @@ else:
                     st.session_state.my_queue_id = qid
                     st.success(f"คิวของคุณ: {qid}")
 
-        st.stop()
+        st.stop()  # หยุดการทำงานส่วน Login ไว้แค่นี้ ถ้ายังไม่ผ่าน
 
-    # ================= ส่วนแสดงผลหลังจาก Login แล้ว =================
+    # ================= ส่วนแสดงผลหลังจาก Login แล้ว (เมนูอาหาร) =================
 
     st.markdown(f"""
     <div style="display: flex; justify-content: space-between; align-items: center; background-color: #5D4037; color: white; padding: 10px 20px; border-radius: 10px; margin-bottom: 15px;">
@@ -789,7 +933,7 @@ else:
 
     if st.button("✏️ เปลี่ยนชื่อ/โต๊ะ"):
         st.session_state.details_confirmed = False
-        st.query_params.clear()  # ล้าง URL
+        st.query_params.clear()  # ล้าง URL Param
         st.rerun()
 
     banner_images = []
