@@ -14,10 +14,10 @@ import re
 import json
 import random
 
-# ================= 1. ตั้งค่าหน้าเว็บ (ต้องอยู่บนสุดเสมอ) =================
+# ================= 1. ตั้งค่าหน้าเว็บ (ต้องอยู่บรรทัดแรกสุดเสมอ) =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# ================= 2. ประกาศตัวแปรระบบ (Session State) - ย้ายมาไว้ตรงนี้ =================
+# ================= 2. สร้างตัวแปรระบบ (Session State) ให้ครบก่อนใช้งาน =================
 if 'basket' not in st.session_state: st.session_state.basket = []
 if 'page' not in st.session_state: st.session_state.page = 'menu'
 if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
@@ -27,7 +27,7 @@ if 'user_table' not in st.session_state: st.session_state.user_table = None
 if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
 
-# State สำหรับระบบ Login 2FA
+# State สำหรับระบบ Login 2FA (OTP)
 if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
 if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
 if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
@@ -386,7 +386,8 @@ def sanitize_link(link):
 
 # ================= 5. เริ่มต้นการทำงาน (Logic Start) =================
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (ต้องทำหลังประกาศ State แต่ก่อนเริ่ม Logic อื่นๆ)
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (แก้ปัญหา Refresh แล้วชื่อหาย)
+# *ต้องวางตรงนี้* (หลังจากประกาศ State และ Function แล้ว)
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
