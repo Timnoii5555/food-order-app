@@ -59,13 +59,15 @@ def check_system_updates():
     if os.path.exists(REFRESH_SIGNAL_FILE):
         try:
             with open(REFRESH_SIGNAL_FILE, 'r') as f:
-                signal_time = float(f.read().strip())
+                content = f.read().strip()
+                if content:
+                    signal_time = float(content)
 
-            if 'last_refresh_timestamp' not in st.session_state:
-                st.session_state.last_refresh_timestamp = signal_time
-            elif signal_time > st.session_state.last_refresh_timestamp:
-                st.session_state.last_refresh_timestamp = signal_time
-                should_rerun = True
+                    if 'last_refresh_timestamp' not in st.session_state:
+                        st.session_state.last_refresh_timestamp = signal_time
+                    elif signal_time > st.session_state.last_refresh_timestamp:
+                        st.session_state.last_refresh_timestamp = signal_time
+                        should_rerun = True
         except:
             pass
 
@@ -368,7 +370,8 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL
+# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (แก้ปัญหา Refresh แล้วชื่อหาย)
+# ต้องทำก่อน Check Update เพื่อให้ถ้ามัน Rerun มันจะจำค่าได้
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
@@ -379,13 +382,13 @@ if 'name' in st.query_params and 'table' in st.query_params:
 if check_system_updates():
     st.rerun()
 
-# JavaScript Poller: บังคับให้ Python Script ทำงานทุก 2 วินาที เพื่อเช็คค่า
+# JavaScript Poller: ทำให้ Client Side ตรวจจับความเปลี่ยนแปลงตลอดเวลา
 components.html(
     """
     <script>
         setInterval(function(){
             window.parent.document.querySelector(".stApp").dispatchEvent(new Event("change"));
-        }, 2000);
+        }, 1500);
     </script>
     """,
     height=0,
@@ -470,13 +473,20 @@ waiting_orders = orders_df[orders_df['สถานะ'] == 'waiting']
 busy_tables = waiting_orders['โต๊ะ'].unique().tolist()
 kitchen_load = len(waiting_orders)
 
+# [LOGIC] คำนวณสิทธิ์การสั่ง (Queue Bypass Logic)
 is_queue_mode = False
 can_order = True
 waiting_q_count = 0
 
+# ถ้าครัวแน่น
 if kitchen_load >= KITCHEN_LIMIT:
     is_queue_mode = True
     can_order = False
+
+    # [NEW] เช็คว่าโต๊ะนี้เป็นลูกค้าเก่าที่มี Order อยู่แล้วหรือไม่ (VIP Pass)
+    if st.session_state.user_table in busy_tables:
+        can_order = True  # อนุญาตให้สั่งเพิ่มได้
+        is_queue_mode = False  # ปิดโหมดคิวสำหรับโต๊ะนี้
 
 if not queue_df.empty:
     if st.session_state.my_queue_id:
@@ -484,7 +494,7 @@ if not queue_df.empty:
             my_idx = queue_df.index[queue_df['queue_id'] == st.session_state.my_queue_id].tolist()[0]
             waiting_q_count = my_idx
             if st.session_state.my_queue_id == queue_df.iloc[0]['queue_id']:
-                if kitchen_load < KITCHEN_LIMIT:
+                if kitchen_load < KITCHEN_LIMIT or (st.session_state.user_table in busy_tables):
                     can_order = True
                     is_queue_mode = False
                 else:
@@ -834,6 +844,7 @@ else:
                 c_name_input = st.text_input("👤 ชื่อลูกค้า (ชื่อเล่น)", value=st.session_state.user_name)
 
                 all_tables = tables_df['table_name'].tolist()
+                # กรองโต๊ะ: ถ้าโต๊ะนั้นไม่ยุ่ง หรือเป็นโต๊ะของฉันเอง ให้แสดง
                 available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
 
                 curr_idx = 0
@@ -851,7 +862,8 @@ else:
                         st.session_state.user_name = c_name_input
                         st.session_state.user_table = table_input
                         st.session_state.details_confirmed = True
-                        # [PERSISTENCE] ฝังข้อมูลลง URL
+
+                        # [PERSISTENCE FIX] บันทึกลง URL ทันที
                         st.query_params['name'] = c_name_input
                         st.query_params['table'] = table_input
                         st.rerun()
@@ -878,7 +890,7 @@ else:
 
     if st.button("✏️ เปลี่ยนชื่อ/โต๊ะ"):
         st.session_state.details_confirmed = False
-        st.query_params.clear()  # ล้าง URL Param
+        st.query_params.clear()  # ล้าง URL
         st.rerun()
 
     banner_images = []
