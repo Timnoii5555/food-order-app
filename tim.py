@@ -34,6 +34,7 @@ CONTACT_CSV = 'contact_data.csv'
 QUEUE_CSV = 'queue_data.csv'
 FEEDBACK_CSV = 'feedback_data.csv'
 LOGIN_LOG_CSV = 'login_log.csv'
+REFRESH_SIGNAL_FILE = 'refresh_signal.txt'  # [NEW] ไฟล์สัญญาณรีเฟรช
 IMAGE_FOLDER = 'uploaded_images'
 BANNER_FOLDER = 'banner_images'
 
@@ -48,6 +49,29 @@ KITCHEN_LIMIT = 10
 def get_thai_time():
     tz = pytz.timezone('Asia/Bangkok')
     return datetime.now(tz)
+
+
+# [NEW] ฟังก์ชันเช็คสัญญาณรีเฟรชจาก Admin
+def check_global_refresh():
+    if os.path.exists(REFRESH_SIGNAL_FILE):
+        try:
+            with open(REFRESH_SIGNAL_FILE, 'r') as f:
+                signal_time = float(f.read().strip())
+
+            # ถ้า Session ยังไม่มีค่า หรือ ค่าในไฟล์ใหม่กว่าค่าเดิม
+            if 'last_refresh_timestamp' not in st.session_state:
+                st.session_state.last_refresh_timestamp = signal_time
+            elif signal_time > st.session_state.last_refresh_timestamp:
+                st.session_state.last_refresh_timestamp = signal_time
+                st.rerun()  # บังคับรีเฟรชหน้าจอทันที
+        except:
+            pass
+
+
+def trigger_global_refresh():
+    # Admin กดปุ่มนี้ -> เขียนเวลาปัจจุบันลงไฟล์ -> ทุกเครื่องจะ detect และรีเฟรช
+    with open(REFRESH_SIGNAL_FILE, 'w') as f:
+        f.write(str(time.time()))
 
 
 def daily_cleanup():
@@ -212,7 +236,6 @@ def delete_feedback_entry(index):
 
 def load_login_log():
     if not os.path.exists(LOGIN_LOG_CSV):
-        # [UPDATED] ไม่เก็บ real_device_info แล้ว
         df = pd.DataFrame(columns=["timestamp", "declared_name", "status"])
         df.to_csv(LOGIN_LOG_CSV, index=False)
         return df
@@ -223,13 +246,12 @@ def save_login_log(declared_name, status="Success"):
     df = load_login_log()
     timestamp = get_thai_time().strftime("%d/%m/%Y %H:%M:%S")
 
-    # ตรวจสอบว่ามี column real_device_info ค้างอยู่ไหม ถ้ามีให้ข้ามไป
     new_entry = {
         "timestamp": timestamp,
         "declared_name": declared_name,
         "status": status
     }
-    # ถ้าไฟล์เก่ามี column real_device_info ให้ใส่ขีด - ไปแทน
+    # รองรับโครงสร้างเก่าถ้ามี
     if "real_device_info" in df.columns:
         new_entry["real_device_info"] = "-"
 
@@ -331,7 +353,11 @@ def sanitize_link(link):
 # ================= 3. UI & CSS =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# --- Feature 1: Polling Script (ทุก 2 วินาที) ---
+# --- Feature: Polling Script & Global Refresh Checker ---
+# ตรวจสอบสัญญาณรีเฟรชทุกครั้งที่หน้ารัน
+check_global_refresh()
+
+# JavaScript Poller: บังคับให้ Python Script ทำงานทุก 2 วินาที เพื่อเช็คค่า
 components.html(
     """
     <script>
@@ -405,7 +431,7 @@ if 'user_name' not in st.session_state: st.session_state.user_name = ""
 if 'details_confirmed' not in st.session_state: st.session_state.details_confirmed = False
 
 # [NEW] State สำหรับระบบ OTP 2 ขั้นตอน
-if 'login_phase' not in st.session_state: st.session_state.login_phase = 1  # 1=กรอกรหัส, 2=รอ OTP
+if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
 if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
 if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
 
@@ -419,7 +445,7 @@ if os.path.exists(MENU_CSV):
         st.session_state.menu_mtime = current_mtime
         st.toast("📢 มีการอัปเดตรายการอาหาร/สต็อก!")
         time.sleep(1)
-        st.rerun()  # รีเฟรชทันทีเมื่อไฟล์เปลี่ยน
+        st.rerun()
     else:
         st.session_state.menu_mtime = current_mtime
 
@@ -490,7 +516,7 @@ with c_menu:
             st.rerun()
         if st.button("⚙️ จัดการร้าน (Admin)", use_container_width=True):
             st.session_state.app_mode = 'admin_login'
-            st.session_state.login_phase = 1  # Reset Login Phase
+            st.session_state.login_phase = 1
             st.rerun()
         st.markdown("---")
         if st.button("🔄 รีเฟรช", use_container_width=True): st.rerun()
@@ -518,7 +544,7 @@ if st.session_state.app_mode == 'admin_login':
         st.session_state.app_mode = 'customer'
         st.rerun()
 
-    # [PHASE 1] กรอกรหัสผ่านก่อน (ตัดการเช็ค Device ออกแล้ว)
+    # [PHASE 1] กรอกรหัสผ่าน (ตัด Device Checker ออก)
     if st.session_state.login_phase == 1:
         with st.container(border=True):
             st.info("ขั้นตอนที่ 1: ยืนยันรหัสผ่านเพื่อขออนุมัติเข้าใช้งาน")
@@ -533,11 +559,9 @@ if st.session_state.app_mode == 'admin_login':
                     declared_name = admin_device if admin_device else "ไม่ระบุชื่อ"
                     thai_now = get_thai_time().strftime('%d/%m/%Y %H:%M:%S')
 
-                    # บันทึก State ชั่วคราว
                     st.session_state.login_otp_ref = otp_code
                     st.session_state.login_temp_name = declared_name
 
-                    # ส่งอีเมลหาเจ้าของ (คุณ)
                     email_subject = f"🔒 คำขอเข้าใช้งาน Admin: {declared_name}"
                     email_body = f"""
                     มีผู้ต้องการเข้าสู่ระบบจัดการร้าน
@@ -557,10 +581,9 @@ if st.session_state.app_mode == 'admin_login':
                     st.rerun()
                 else:
                     st.error("รหัสผ่านผิด! ❌")
-                    # Log Failed Attempt
                     save_login_log(admin_device, "Failed (Wrong Pass)")
 
-    # [PHASE 2] กรอก OTP ที่เจ้าของส่งให้
+    # [PHASE 2] กรอก OTP
     elif st.session_state.login_phase == 2:
         with st.container(border=True):
             st.subheader("🛡️ ขั้นตอนที่ 2: รอการอนุมัติ")
@@ -574,12 +597,11 @@ if st.session_state.app_mode == 'admin_login':
             with c1:
                 if st.button("ยืนยันรหัส OTP", type="primary", use_container_width=True):
                     if otp_input == st.session_state.login_otp_ref:
-                        # OTP ถูกต้อง -> เข้าสู่ระบบสำเร็จ
                         save_login_log(st.session_state.login_temp_name, "Success (OTP Verified)")
                         st.success("อนุมัติสำเร็จ! ยินดีต้อนรับครับ ✅")
                         time.sleep(1)
                         st.session_state.app_mode = 'admin_dashboard'
-                        st.session_state.login_phase = 1  # Reset
+                        st.session_state.login_phase = 1
                         st.rerun()
                     else:
                         st.error("รหัส OTP ไม่ถูกต้อง! ❌")
@@ -590,9 +612,19 @@ if st.session_state.app_mode == 'admin_login':
 
 elif st.session_state.app_mode == 'admin_dashboard':
     st.subheader("⚙️ จัดการร้าน (Admin)")
-    if st.button("🚪 ออกจากระบบ"):
-        st.session_state.app_mode = 'customer'
-        st.rerun()
+
+    # [NEW] ปุ่ม Global Refresh สำหรับ Admin
+    c_ref1, c_ref2 = st.columns([3, 1])
+    with c_ref1:
+        if st.button("🚪 ออกจากระบบ"):
+            st.session_state.app_mode = 'customer'
+            st.rerun()
+    with c_ref2:
+        if st.button("🔄 รีเฟรชระบบทั้งร้าน", type="primary", use_container_width=True):
+            trigger_global_refresh()
+            st.toast("✅ ส่งคำสั่งรีเฟรชไปยังทุกเครื่องแล้ว!", icon="🔄")
+            time.sleep(1)
+            st.rerun()
 
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "👨‍🍳 ครัว", "📢 โปรโมชั่น", "📦 สต็อก/โต๊ะ", "📝 เมนู",
@@ -610,41 +642,23 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     with c1:
                         st.markdown(f"**{row['โต๊ะ']}** | {row['เวลา']}")
                         st.markdown(f"👤 {row['ลูกค้า']}")
-
-                        val_price = row['ยอดรวม']
-                        val_note = row['หมายเหตุ']
-
-
-                        def is_number(s):
-                            try:
-                                float(str(s).replace(',', ''))
-                            except:
-                                return False
-                            return True
-
-
-                        if not is_number(val_price) and is_number(val_note):
-                            display_price = val_note
-                            display_note = val_price
-                        else:
-                            display_price = val_price
-                            display_note = val_note
-
-                        st.info(f"💰 ยอดรวม: **{display_price}** บาท")
+                        st.info(f"💰 ยอดรวม: **{row['ยอดรวม']}** บาท")
                         with st.expander("รายการอาหาร"):
                             st.code(row['รายการอาหาร'], language="text")
-
-                        if str(display_note) != 'nan' and str(display_note) != '':
-                            st.warning(f"Note: {display_note}")
-
+                        if str(row['หมายเหตุ']) != 'nan' and str(row['หมายเหตุ']) != '':
+                            st.warning(f"Note: {row['หมายเหตุ']}")
                     with c2:
                         if st.button("💰 รับเงิน", key=f"pay_{index}", type="primary", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'paid'
                             orders_df.to_csv(ORDER_CSV, index=False)
+                            st.toast("✅ รับเงินเรียบร้อย!")
+                            time.sleep(0.5)
                             st.rerun()
                         if st.button("❌ ยกเลิก", key=f"cncl_{index}", use_container_width=True):
                             orders_df.at[index, 'สถานะ'] = 'cancelled'
                             orders_df.to_csv(ORDER_CSV, index=False)
+                            st.toast("❌ ยกเลิกออเดอร์แล้ว")
+                            time.sleep(0.5)
                             st.rerun()
         else:
             st.success("ไม่มีออเดอร์ค้าง")
@@ -659,14 +673,16 @@ elif st.session_state.app_mode == 'admin_dashboard':
                 uploaded = st.file_uploader(f"อัปโหลดรูป {i}", type=['png', 'jpg', 'jpeg'], key=f"ban_up_{i}")
                 if uploaded:
                     if save_promo_banner(uploaded, i):
-                        st.success(f"บันทึกรูป {i} แล้ว")
-                        time.sleep(0.5)
+                        st.toast(f"บันทึกรูป {i} แล้ว!", icon="✅")
+                        time.sleep(1)
                         st.rerun()
             with col_b2:
                 if os.path.exists(filepath):
                     st.image(filepath, use_container_width=True)
                     if st.button(f"🗑️ ลบรูป {i}", key=f"del_ban_{i}"):
                         os.remove(filepath)
+                        st.toast(f"ลบรูป {i} แล้ว!", icon="🗑️")
+                        time.sleep(0.5)
                         st.rerun()
                 else:
                     st.info("ว่าง")
@@ -678,7 +694,9 @@ elif st.session_state.app_mode == 'admin_dashboard':
         if st.button("บันทึกสต็อก"):
             menu_df['in_stock'] = edited_stock['in_stock']
             menu_df.to_csv(MENU_CSV, index=False)
-            st.toast("บันทึกแล้ว")
+            st.toast("✅ บันทึกสต็อกเรียบร้อย!", icon="💾")
+            time.sleep(0.5)
+            st.rerun()
         st.markdown("---")
         st.write("#### 🪑 จัดการโต๊ะ")
         with st.form("add_tbl"):
@@ -688,11 +706,15 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     new_r = pd.DataFrame([{"table_name": new_t}])
                     tables_df = pd.concat([tables_df, new_r], ignore_index=True)
                     tables_df.to_csv(TABLES_CSV, index=False)
+                    st.toast(f"✅ เพิ่มโต๊ะ {new_t} แล้ว", icon="🪑")
+                    time.sleep(0.5)
                     st.rerun()
         del_t = st.selectbox("ลบโต๊ะ", ["-"] + tables_df['table_name'].tolist())
         if st.button("ลบโต๊ะ") and del_t != "-":
             tables_df = tables_df[tables_df['table_name'] != del_t]
             tables_df.to_csv(TABLES_CSV, index=False)
+            st.toast(f"🗑️ ลบโต๊ะ {del_t} แล้ว", icon="🗑️")
+            time.sleep(0.5)
             st.rerun()
 
     with tab4:
@@ -714,7 +736,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     nd = pd.DataFrame([{"name": n, "price": p, "img": final_img_path, "category": c, "in_stock": True}])
                     menu_df = pd.concat([menu_df, nd], ignore_index=True)
                     menu_df.to_csv(MENU_CSV, index=False)
-                    st.success(f"เพิ่ม {n} สำเร็จ!")
+                    st.toast(f"✅ เพิ่มเมนู {n} สำเร็จ!", icon="🍲")
                     time.sleep(1)
                     st.rerun()
         st.write("#### ❌ ลบเมนู")
@@ -722,6 +744,8 @@ elif st.session_state.app_mode == 'admin_dashboard':
         if st.button("ลบเมนู") and del_m != "-":
             menu_df = menu_df[menu_df['name'] != del_m]
             menu_df.to_csv(MENU_CSV, index=False)
+            st.toast(f"🗑️ ลบเมนู {del_m} แล้ว", icon="🗑️")
+            time.sleep(0.5)
             st.rerun()
 
     with tab5:
@@ -752,7 +776,7 @@ elif st.session_state.app_mode == 'admin_dashboard':
             if st.form_submit_button("💾 บันทึกข้อมูลติดต่อ"):
                 new_data = {"phone": new_phone, "line": new_line, "facebook": new_fb, "instagram": new_ig}
                 save_contacts(new_data)
-                st.success("บันทึกเรียบร้อย!")
+                st.toast("✅ บันทึกข้อมูลติดต่อเรียบร้อย!", icon="📞")
                 time.sleep(1)
                 st.rerun()
 
@@ -768,6 +792,8 @@ elif st.session_state.app_mode == 'admin_dashboard':
                     with c2:
                         if st.button("🗑️ ลบ", key=f"del_fb_{index}", type="primary"):
                             delete_feedback_entry(index)
+                            st.toast("ลบข้อความแล้ว", icon="🗑️")
+                            time.sleep(0.5)
                             st.rerun()
         else:
             st.info("ยังไม่มีรีวิวครับ")
@@ -777,7 +803,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
         st.info("ตารางนี้แสดงประวัติการเข้าใช้งาน")
         log_df = load_login_log()
         if not log_df.empty:
-            # กลับด้านเพื่อให้เห็นล่าสุดก่อน
             st.dataframe(log_df.iloc[::-1], hide_index=True, use_container_width=True)
             if st.button("🗑️ ล้างประวัติทั้งหมด"):
                 pd.DataFrame(columns=["timestamp", "declared_name", "status"]).to_csv(LOGIN_LOG_CSV, index=False)
@@ -787,7 +812,6 @@ elif st.session_state.app_mode == 'admin_dashboard':
 
 # === Customer Page ===
 else:
-    # ตรวจสอบว่ายืนยันข้อมูลแล้วหรือยัง (แก้ปัญหา Refresh แล้วต้องเลือกโต๊ะใหม่)
     if not st.session_state.details_confirmed:
         st.markdown("""
         <div style="background-color: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 600px; margin: auto; text-align: center;">
@@ -800,21 +824,17 @@ else:
         with col_c_center[1]:
             st.write("")
             with st.container(border=True):
-                # Input ชื่อลูกค้า
                 c_name_input = st.text_input("👤 ชื่อลูกค้า (ชื่อเล่น)", value=st.session_state.user_name)
 
-                # Select โต๊ะ
                 all_tables = tables_df['table_name'].tolist()
                 available_tables = [t for t in all_tables if t not in busy_tables or t == st.session_state.user_table]
 
-                # หา index เดิมถ้ามี
                 curr_idx = 0
                 if st.session_state.user_table in available_tables:
                     curr_idx = available_tables.index(st.session_state.user_table)
 
                 table_input = st.selectbox("📍 เลือกโต๊ะ", available_tables, index=curr_idx)
 
-                # ปุ่มยืนยัน (กดครั้งเดียวแล้วจำตลอด)
                 if st.button("✅ ยืนยันและเริ่มสั่งอาหาร", type="primary", use_container_width=True):
                     if not c_name_input.strip():
                         st.error("กรุณาใส่ชื่อลูกค้า")
@@ -826,7 +846,6 @@ else:
                         st.session_state.details_confirmed = True
                         st.rerun()
 
-        # แสดง Feature Queue ในหน้านี้ด้วย (ถ้าจำเป็น)
         if is_queue_mode:
             st.markdown("---")
             st.warning(f"⚠️ ขณะนี้ครัวแน่น ({kitchen_load} คิว) กรุณารับบัตรคิวหากยังไม่ได้โต๊ะ")
@@ -837,23 +856,20 @@ else:
                     st.session_state.my_queue_id = qid
                     st.success(f"คิวของคุณ: {qid}")
 
-        st.stop()  # หยุด Code ไม่ให้รันส่วนเมนูถ้ายังไม่ confirm
+        st.stop()
 
     # ================= ส่วนแสดงผลหลังจาก Login แล้ว =================
 
-    # Header แสดงสถานะลูกค้า
     st.markdown(f"""
     <div style="display: flex; justify-content: space-between; align-items: center; background-color: #5D4037; color: white; padding: 10px 20px; border-radius: 10px; margin-bottom: 15px;">
         <div style="font-size: 18px;">👤 คุณ: <b>{st.session_state.user_name}</b> | 📍 <b>{st.session_state.user_table}</b></div>
     </div>
     """, unsafe_allow_html=True)
 
-    # ปุ่มแก้ไขข้อมูลลูกค้า (เผื่ออยากเปลี่ยนโต๊ะ)
     if st.button("✏️ เปลี่ยนชื่อ/โต๊ะ"):
         st.session_state.details_confirmed = False
         st.rerun()
 
-    # Banner Slideshow
     banner_images = []
     for i in range(1, 6):
         fpath = os.path.join(BANNER_FOLDER, f"banner_{i}.png")
@@ -870,7 +886,6 @@ else:
         <!DOCTYPE html><html><head><style>.mySlides {{display: none;}}img {{vertical-align: middle;}}.fade {{-webkit-animation-name: fade; -webkit-animation-duration: 1.5s; animation-name: fade; animation-duration: 1.5s;}}@-webkit-keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}@keyframes fade {{ from {{opacity: .4}} to {{opacity: 1}} }}</style></head><body><div class="slideshow-container">{slides_html}</div><script>let slideIndex = 0;showSlides();function showSlides() {{let i;let slides = document.getElementsByClassName("mySlides");for (i = 0; i < slides.length; i++) {{slides[i].style.display = "none";}}slideIndex++;if (slideIndex > slides.length) {{slideIndex = 1}}slides[slideIndex-1].style.display = "block";setTimeout(showSlides, 8000);}}</script></body></html>
         """, height=320)
 
-    # Queue Logic
     if is_queue_mode:
         if st.session_state.my_queue_id:
             if can_order:
@@ -901,7 +916,6 @@ else:
                     st.rerun()
             st.stop()
     else:
-        # Show Kitchen Status
         if not waiting_orders.empty:
             top_order = waiting_orders.iloc[0]
             st.markdown(f"""
@@ -936,8 +950,6 @@ else:
 
     elif st.session_state.page == 'menu':
         st.subheader("📝 รายการอาหาร")
-
-        # --- Feature ใหม่: แยกหมวดหมู่ (Tabs) ---
         categories = menu_df['category'].unique() if 'category' in menu_df.columns else []
 
         if len(categories) > 0:
@@ -973,7 +985,6 @@ else:
                                 else:
                                     st.button("หมด", key=f"no_{row['name']}_{idx}", disabled=True)
         else:
-            # Fallback ถ้าไม่มีหมวดหมู่ แสดงรวมหมด
             cols = st.columns(2)
             for idx, row in menu_df.iterrows():
                 with cols[idx % 2]:
@@ -1048,7 +1059,6 @@ else:
                     now_str = get_thai_time().strftime("%d/%m/%Y %H:%M")
                     items = ", ".join([f"{name}(x{count})" for name, count in counts.items()])
 
-                    # === Save Order & Update Session State ===
                     status = save_order({
                         "เวลา": now_str,
                         "โต๊ะ": st.session_state.user_table,
