@@ -14,10 +14,10 @@ import re
 import json
 import random
 
-# ================= 1. ตั้งค่าและ Initialize (ส่วนนี้ต้องอยู่บรรทัดแรกๆ) =================
+# ================= 1. ตั้งค่าและ Initialize =================
 st.set_page_config(page_title="TimNoi Shabu", page_icon="🍲", layout="wide")
 
-# [FIX] ประกาศตัวแปร Session State ไว้ตรงนี้ทันที (ก่อนที่จะมีการเรียกใช้)
+# ประกาศตัวแปร Session State
 if 'basket' not in st.session_state: st.session_state.basket = []
 if 'page' not in st.session_state: st.session_state.page = 'menu'
 if 'app_mode' not in st.session_state: st.session_state.app_mode = 'customer'
@@ -29,28 +29,29 @@ if 'details_confirmed' not in st.session_state: st.session_state.details_confirm
 if 'last_refresh_timestamp' not in st.session_state: st.session_state.last_refresh_timestamp = 0
 if 'menu_mtime' not in st.session_state: st.session_state.menu_mtime = 0
 
-# [NEW] State สำหรับระบบ OTP 2 ขั้นตอน
+# State สำหรับระบบ OTP
 if 'login_phase' not in st.session_state: st.session_state.login_phase = 1
 if 'login_otp_ref' not in st.session_state: st.session_state.login_otp_ref = None
 if 'login_temp_name' not in st.session_state: st.session_state.login_temp_name = ""
 
-# [PERSISTENCE] กู้คืนข้อมูลลูกค้าจาก URL (ทำงานได้แล้วเพราะประกาศตัวแปรไว้ข้างบนแล้ว)
+# กู้คืนข้อมูลลูกค้าจาก URL
 if 'name' in st.query_params and 'table' in st.query_params:
     if st.session_state.user_name == "":
         st.session_state.user_name = st.query_params['name']
         st.session_state.user_table = st.query_params['table']
         st.session_state.details_confirmed = True
 
-# ================= 2. Config & Constants =================
+# ================= 2. Config & Constants (แก้ไขส่วนนี้ให้แล้วครับ) =================
 try:
+    # พยายามโหลดจาก Secrets ของ Streamlit Cloud ก่อน
     SENDER_EMAIL = st.secrets["email"]["user"]
     SENDER_PASSWORD = st.secrets["email"]["password"]
     ADMIN_PASSWORD = st.secrets["admin"]["password"]
 except:
-    # ค่า Default สำหรับทดสอบ
-    SENDER_EMAIL = 'test@gmail.com'
-    SENDER_PASSWORD = 'xxxx xxxx xxxx xxxx'
-    ADMIN_PASSWORD = '1234'
+    # [FIXED] ถ้าไม่มี Secrets ให้ใช้ค่าที่คุณระบุมา (แก้ไขรหัสผ่าน + ใส่อีเมลจริง)
+    SENDER_EMAIL = 'jaskaikai4@gmail.com'
+    SENDER_PASSWORD = 'zqyx nqdk ygww drpp'
+    ADMIN_PASSWORD = '090090op'
 
 RECEIVER_EMAIL = SENDER_EMAIL
 
@@ -81,7 +82,6 @@ def get_thai_time():
 
 def check_system_updates():
     should_rerun = False
-    # 1. เช็คสัญญาณ Global Refresh
     if os.path.exists(REFRESH_SIGNAL_FILE):
         try:
             with open(REFRESH_SIGNAL_FILE, 'r') as f:
@@ -92,7 +92,6 @@ def check_system_updates():
         except:
             pass
 
-    # 2. เช็คการอัปเดตไฟล์เมนู
     if os.path.exists(MENU_CSV):
         try:
             current_mtime = os.path.getmtime(MENU_CSV)
