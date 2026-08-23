@@ -49,8 +49,8 @@ try:
     ADMIN_PASSWORD = st.secrets["admin"]["password"]
 except:
     # [FIXED] ถ้าไม่มี Secrets ให้ใช้ค่าที่คุณระบุมา (แก้ไขรหัสผ่าน + ใส่อีเมลจริง)
-    SENDER_EMAIL = 'jaskaikai4@gmail.com'
-    SENDER_PASSWORD = 'zqyx nqdk ygww drpp'
+    SENDER_EMAIL = 'pupe15625@gmail.com'
+    SENDER_PASSWORD = 'cpgz uqtz zaku famv'
     ADMIN_PASSWORD = '090090op'
 
 RECEIVER_EMAIL = SENDER_EMAIL
