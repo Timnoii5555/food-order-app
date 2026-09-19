@@ -120,7 +120,29 @@ KITCHEN_LIMIT = 10
 OTP_TTL_SECONDS = 5 * 60
 OTP_MAX_ATTEMPTS = 5
 ALLOWED_IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+# Short, human-readable example the admin sees pre-filled in the "add menu
+# item" form's URL field — kept separate from MISSING_IMG below, which is a
+# much longer data: URI and would be unreadable clutter in a text input.
 PLACEHOLDER_IMG = "https://placehold.co/400x400?text=TimNoi"
+# On-brand fallback shown to CUSTOMERS whenever a menu/banner image is
+# missing or fails to load — a small inline SVG (a bowl with steam) instead
+# of a plain grey box, so an empty menu still looks designed rather than
+# broken. No native Streamlit element draws this, so it's a plain <img>
+# via a data: URI — no external request, no unsafe HTML, just an image src.
+MISSING_IMG = (
+    "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MDAiIGhlaWdodD0iN"
+    "DAwIiB2aWV3Qm94PSIwIDAgNDAwIDQwMCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9I"
+    "jEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iI0YyRTlEQyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwM"
+    "CUiIHN0b3AtY29sb3I9IiNFNEQ1QkYiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI0MDAiIGhla"
+    "WdodD0iNDAwIiBmaWxsPSJ1cmwoI2cpIi8+CiAgPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMjAwLDIyNSkiIGZpbGw9Im5vbmUiIHN0cm9rZ"
+    "T0iIzhENkU2MyIgc3Ryb2tlLXdpZHRoPSI5IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogICAgP"
+    "HBhdGggZD0iTS03MiwtNiBhNzIsNTIgMCAxLDAgMTQ0LDAgWiIvPgogICAgPHBhdGggZD0iTS04NCwtNiBMODQsLTYiLz4KICAgIDxwYXRoI"
+    "GQ9Ik0tNTgsMTAgcTAsMjAgMjAsMjAgaDc2IHEyMCwwIDIwLC0yMCIgb3BhY2l0eT0iMC41NSIvPgogIDwvZz4KICA8ZyBzdHJva2U9IiM4R"
+    "DZFNjMiIHN0cm9rZS13aWR0aD0iNyIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBmaWxsPSJub25lIiBvcGFjaXR5PSIwLjQ1Ij4KICAgIDxwY"
+    "XRoIGQ9Ik0xNzIsMTMwIHExMCwtMjIgLTQsLTM4IHEtMTIsLTE0IC0yLC0zNCIvPgogICAgPHBhdGggZD0iTTIwMCwxMjQgcTEwLC0yMiAtN"
+    "CwtMzggcS0xMiwtMTQgLTIsLTM0Ii8+CiAgICA8cGF0aCBkPSJNMjI4LDEzMCBxMTAsLTIyIC00LC0zOCBxLTEyLC0xNCAtMiwtMzQiLz4KI"
+    "CA8L2c+Cjwvc3ZnPg=="
+)
 
 
 # ============================================================================
@@ -231,9 +253,9 @@ def daily_cleanup() -> None:
 
 
 DEFAULT_MENU = [
-    {"name": "หมูหมัก", "price": 120, "img": PLACEHOLDER_IMG,
+    {"name": "หมูหมัก", "price": 120, "img": MISSING_IMG,
      "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
-    {"name": "ผักรวม", "price": 40, "img": PLACEHOLDER_IMG,
+    {"name": "ผักรวม", "price": 40, "img": MISSING_IMG,
      "category": "ผัก (Veggie)", "in_stock": True},
 ]
 
@@ -429,11 +451,11 @@ def get_image_base64(path: str) -> str:
 def resolve_img_src(path) -> str:
     """Turn a menu/banner 'img' cell into something st.image can render."""
     path = str(path or "").strip()
-    if path.startswith("http://") or path.startswith("https://"):
+    if path.startswith(("http://", "https://", "data:image/")):
         return path
     if path and os.path.exists(path):
-        return get_image_base64(path) or PLACEHOLDER_IMG
-    return PLACEHOLDER_IMG
+        return get_image_base64(path) or MISSING_IMG
+    return MISSING_IMG
 
 
 def find_banner_path(index: int) -> str | None:
@@ -607,6 +629,35 @@ def show_why_us_dialog() -> None:
     st.caption("จุดเด่นของระบบสั่งอาหารออนไลน์ของ TimNoi Shabu เทียบกับการสั่งแบบเดิม")
     render_why_us_grid()
 
+
+# ============================================================================
+# Small, targeted styling touch-up.
+#
+# Everything else in this app is styled through .streamlit/config.toml and
+# native widgets on purpose (theming survives Streamlit upgrades; CSS
+# selectors don't). The one thing no native widget does is crop photos of
+# very different shapes/sizes to a consistent square, which is what makes a
+# hand-photographed menu look like a proper product catalogue instead of a
+# grid of mismatched thumbnails — so that one visual detail gets a few lines
+# of scoped CSS, targeted only at menu/cart card images via st.container's
+# `key=` (see Streamlit's own theming guide on the `.st-key-*` escape hatch).
+# ============================================================================
+st.html("""
+<style>
+[class*="st-key-menu_card_"], [class*="st-key-cart_item_"] { overflow: hidden; }
+[class*="st-key-menu_card_"] [data-testid="stImage"] img,
+[class*="st-key-cart_item_"] [data-testid="stImage"] img {
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    border-radius: 10px;
+}
+[class*="st-key-menu_card_"] { transition: box-shadow .15s ease, transform .15s ease; }
+[class*="st-key-menu_card_"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(61, 39, 20, .14);
+}
+</style>
+""")
 
 # ============================================================================
 # 6. Header
@@ -1195,7 +1246,7 @@ else:
             cols = st.columns(2)
             for n, (idx, row) in enumerate(items_df.iterrows()):
                 with cols[n % 2]:
-                    with st.container(border=True):
+                    with st.container(border=True, key=f"menu_card_{idx}"):
                         st.image(resolve_img_src(row["img"]), width="stretch")
                         st.markdown(f"**{row['name']}**")
                         if row["in_stock"]:
@@ -1260,7 +1311,7 @@ else:
                 item = uniq[name]
                 subtotal = item["price"] * count
                 total += subtotal
-                with st.container(border=True):
+                with st.container(border=True, key=f"cart_item_{name}"):
                     c1, c2 = st.columns([1, 3], gap="small", wrap=False, vertical_alignment="center")
                     with c1:
                         st.image(resolve_img_src(item["img"]), width="stretch")
