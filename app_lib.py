@@ -657,12 +657,18 @@ def render_why_us_grid() -> None:
 #
 # Everything else in this app is styled through .streamlit/config.toml and
 # native widgets on purpose (theming survives Streamlit upgrades; CSS
-# selectors don't). Two visual details no native widget/param covers get a
-# few lines of scoped CSS each, targeted via st.container's `key=` (see
-# Streamlit's own theming guide on the `.st-key-*` escape hatch):
+# selectors don't). A few visual details no native widget/param covers get
+# scoped CSS each, targeted via st.container's `key=` (see Streamlit's own
+# theming guide on the `.st-key-*` escape hatch):
 #   - cropping photos of very different shapes/sizes to a consistent square,
-#     which is what makes a hand-photographed menu look like a proper
-#     product catalogue instead of a grid of mismatched thumbnails.
+#     which is what makes a hand-photographed menu (and the small cart
+#     thumbnail) look like a proper product catalogue instead of a grid of
+#     mismatched thumbnails.
+#   - the cart thumbnail is placed in a horizontal flex row (not st.columns)
+#     specifically because st.columns stacks to full width on a narrow
+#     phone screen — which is what made the product photo balloon to
+#     nearly the card's full width before; a flex row keeps it pinned to
+#     its 56px width at every screen size.
 #   - shrinking the cart's qty +/- buttons from full-size text buttons down
 #     to small square icon-sized ones, so the row reads as one compact unit.
 # ============================================================================
@@ -679,6 +685,15 @@ def inject_scoped_css() -> None:
     [class*="st-key-menu_card_"]:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 24px rgba(193, 39, 45, .16);
+    }
+    [class*="st-key-cart_row_"] [data-testid="stImage"] {
+        flex: 0 0 auto;
+        width: 56px;
+    }
+    [class*="st-key-cart_row_"] [data-testid="stImage"] img {
+        aspect-ratio: 1 / 1;
+        object-fit: cover;
+        border-radius: 8px;
     }
     [class*="st-key-qty_row_"] { gap: .5rem !important; }
     [class*="st-key-qty_row_"] [data-testid="stButton"] button {

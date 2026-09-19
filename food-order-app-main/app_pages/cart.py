@@ -7,7 +7,7 @@ import streamlit as st
 
 from app_lib import (
     clean_text, get_thai_time, load_shop_context, render_customer_topbar,
-    require_customer_identity, save_order, send_email_notification,
+    require_customer_identity, resolve_img_src, save_order, send_email_notification,
     thb,
 )
 
@@ -29,8 +29,12 @@ if st.session_state.basket:
         subtotal = item["price"] * count
         total += subtotal
         with st.container(border=True, key=f"cart_item_{name}"):
-            st.markdown(f"**{name}**")
-            st.caption(f"{thb(item['price'])} x {count} = {thb(subtotal)}")
+            with st.container(horizontal=True, gap="small", vertical_alignment="center",
+                               key=f"cart_row_{name}"):
+                st.image(resolve_img_src(item["img"]), width=56)
+                with st.container():
+                    st.markdown(f"**{name}**")
+                    st.caption(f"{thb(item['price'])} x {count} = {thb(subtotal)}")
             with st.container(horizontal=True, gap="small", vertical_alignment="center",
                                key=f"qty_row_{name}"):
                 if st.button("−", key=f"d_{name}", help="ลดจำนวน"):
