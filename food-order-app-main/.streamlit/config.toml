@@ -1,14 +1,16 @@
 [theme]
-# TimNoi Shabu brand theme — warm brown & gold, matching the restaurant logo.
+# TimNoi Shabu brand theme — classic red & white, the color pairing most
+# associated with restaurants/food brands worldwide (still keeps the warm
+# gold/brown logo as an accent within the red, not as the base palette).
 # Edit these tokens (not CSS) to re-skin the app; see the Streamlit theming
 # docs: https://docs.streamlit.io/develop/concepts/configuration/theming
 base = "light"
-primaryColor = "#6D4C41"
-backgroundColor = "#FDFBF7"
-secondaryBackgroundColor = "#F2E9DC"
-textColor = "#2B1B12"
-borderColor = "#E4D5BF"
-linkColor = "#8A5A2B"
+primaryColor = "#C1272D"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#FAF3F3"
+textColor = "#241414"
+borderColor = "#EDD9D9"
+linkColor = "#8E1F1F"
 linkUnderline = false
 
 greenColor = "#2E7D32"
@@ -21,13 +23,13 @@ orangeColor = "#E65100"
 orangeBackgroundColor = "#FFF3E0"
 orangeTextColor = "#A34600"
 blueColor = "#1565C0"
-grayColor = "#8D7A6B"
+grayColor = "#8A7373"
 
 baseRadius = "large"
 buttonRadius = "large"
 showWidgetBorder = true
-dataframeBorderColor = "#E4D5BF"
-dataframeHeaderBackgroundColor = "#F2E9DC"
+dataframeBorderColor = "#EDD9D9"
+dataframeHeaderBackgroundColor = "#FAF3F3"
 
 font = "Sarabun:https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap"
 headingFont = "Sarabun:https://fonts.googleapis.com/css2?family=Sarabun:wght@600;700&display=swap"

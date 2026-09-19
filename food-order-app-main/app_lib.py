@@ -677,7 +677,7 @@ def inject_scoped_css() -> None:
     [class*="st-key-menu_card_"] { transition: box-shadow .15s ease, transform .15s ease; }
     [class*="st-key-menu_card_"]:hover {
         transform: translateY(-2px);
-        box-shadow: 0 10px 24px rgba(61, 39, 20, .14);
+        box-shadow: 0 10px 24px rgba(193, 39, 45, .16);
     }
     </style>
     """)
