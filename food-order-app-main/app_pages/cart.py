@@ -31,7 +31,8 @@ if st.session_state.basket:
         with st.container(border=True, key=f"cart_item_{name}"):
             st.markdown(f"**{name}**")
             st.caption(f"{thb(item['price'])} x {count} = {thb(subtotal)}")
-            with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+            with st.container(horizontal=True, gap="small", vertical_alignment="center",
+                               key=f"qty_row_{name}"):
                 if st.button("−", key=f"d_{name}", help="ลดจำนวน"):
                     for i, x in enumerate(st.session_state.basket):
                         if x["name"] == name:

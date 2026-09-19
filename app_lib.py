@@ -657,12 +657,14 @@ def render_why_us_grid() -> None:
 #
 # Everything else in this app is styled through .streamlit/config.toml and
 # native widgets on purpose (theming survives Streamlit upgrades; CSS
-# selectors don't). The one thing no native widget does is crop photos of
-# very different shapes/sizes to a consistent square, which is what makes a
-# hand-photographed menu look like a proper product catalogue instead of a
-# grid of mismatched thumbnails — so that one visual detail gets a few lines
-# of scoped CSS, targeted only at menu card images via st.container's `key=`
-# (see Streamlit's own theming guide on the `.st-key-*` escape hatch).
+# selectors don't). Two visual details no native widget/param covers get a
+# few lines of scoped CSS each, targeted via st.container's `key=` (see
+# Streamlit's own theming guide on the `.st-key-*` escape hatch):
+#   - cropping photos of very different shapes/sizes to a consistent square,
+#     which is what makes a hand-photographed menu look like a proper
+#     product catalogue instead of a grid of mismatched thumbnails.
+#   - shrinking the cart's qty +/- buttons from full-size text buttons down
+#     to small square icon-sized ones, so the row reads as one compact unit.
 # ============================================================================
 def inject_scoped_css() -> None:
     st.html("""
@@ -677,6 +679,14 @@ def inject_scoped_css() -> None:
     [class*="st-key-menu_card_"]:hover {
         transform: translateY(-2px);
         box-shadow: 0 10px 24px rgba(193, 39, 45, .16);
+    }
+    [class*="st-key-qty_row_"] { gap: .5rem !important; }
+    [class*="st-key-qty_row_"] [data-testid="stButton"] button {
+        min-width: 2.1rem;
+        width: 2.1rem;
+        height: 2.1rem;
+        padding: 0;
+        font-size: .95rem;
     }
     </style>
     """)
