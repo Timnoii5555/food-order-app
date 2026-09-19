@@ -661,15 +661,14 @@ def render_why_us_grid() -> None:
 # very different shapes/sizes to a consistent square, which is what makes a
 # hand-photographed menu look like a proper product catalogue instead of a
 # grid of mismatched thumbnails — so that one visual detail gets a few lines
-# of scoped CSS, targeted only at menu/cart card images via st.container's
-# `key=` (see Streamlit's own theming guide on the `.st-key-*` escape hatch).
+# of scoped CSS, targeted only at menu card images via st.container's `key=`
+# (see Streamlit's own theming guide on the `.st-key-*` escape hatch).
 # ============================================================================
 def inject_scoped_css() -> None:
     st.html("""
     <style>
-    [class*="st-key-menu_card_"], [class*="st-key-cart_item_"] { overflow: hidden; }
-    [class*="st-key-menu_card_"] [data-testid="stImage"] img,
-    [class*="st-key-cart_item_"] [data-testid="stImage"] img {
+    [class*="st-key-menu_card_"] { overflow: hidden; }
+    [class*="st-key-menu_card_"] [data-testid="stImage"] img {
         aspect-ratio: 1 / 1;
         object-fit: cover;
         border-radius: 10px;

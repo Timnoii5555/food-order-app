@@ -1,14 +1,17 @@
-"""TimNoi Shabu — order-ahead & kitchen console. Entrypoint.
+"""TimNoi Shabu — customer storefront. Entrypoint.
 
-A multi-page Streamlit app used two ways:
-  * Customers scan a table QR code, browse the menu, and place orders
-    (app_pages/menu.py, cart.py, feedback.py).
-  * Staff open the admin panel to run the kitchen queue, sales, menu,
-    promotions, tables, contact details, and reviews (app_pages/admin.py).
+A multi-page Streamlit app for customers: scan a table QR code, browse the
+menu, and place orders (app_pages/menu.py, cart.py, feedback.py, why_us.py).
 
-Everything shared across pages — constants, CSV-backed data helpers, the
-header, the live-refresh fragment — lives in app_lib.py. This file only
-does the one-time-per-run setup and then routes to the current page.
+The admin/back-office dashboard (kitchen queue, sales, menu, promotions,
+tables, contact details, reviews) is a SEPARATE app — see admin_app.py —
+deployed on its own so it isn't reachable through this site's navigation.
+Both entrypoints share the same app_lib.py and CSV data.
+
+Everything shared across customer pages — constants, CSV-backed data
+helpers, the header, the live-refresh fragment — lives in app_lib.py. This
+file only does the one-time-per-run setup and then routes to the current
+page.
 
 Data lives in plain CSV files next to this script (see app_lib.py's *_CSV
 constants) so the app needs no external database. Visual styling comes from
@@ -71,8 +74,6 @@ pages = st.navigation(
                 url_path="feedback"),
         st.Page("app_pages/why_us.py", title="ทำไมต้องสั่งที่นี่", icon=":material/help:",
                 url_path="why-us"),
-        st.Page("app_pages/admin.py", title="แอดมิน", icon=":material/admin_panel_settings:",
-                url_path="admin"),
     ],
     position="sidebar",
 )

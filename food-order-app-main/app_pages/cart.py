@@ -7,7 +7,7 @@ import streamlit as st
 
 from app_lib import (
     clean_text, get_thai_time, load_shop_context, render_customer_topbar,
-    require_customer_identity, resolve_img_src, save_order, send_email_notification,
+    require_customer_identity, save_order, send_email_notification,
     thb,
 )
 
@@ -29,24 +29,17 @@ if st.session_state.basket:
         subtotal = item["price"] * count
         total += subtotal
         with st.container(border=True, key=f"cart_item_{name}"):
-            c1, c2 = st.columns([1, 3], gap="small", wrap=False, vertical_alignment="center")
-            with c1:
-                st.image(resolve_img_src(item["img"]), width="stretch")
-            with c2:
-                st.markdown(f"**{name}**")
-                st.caption(f"{thb(item['price'])} x {count} = {thb(subtotal)}")
-            b1, b2, b3 = st.columns([1, 1, 1], gap="small", wrap=False)
-            with b1:
-                if st.button("−", key=f"d_{name}", help="ลดจำนวน", width="stretch"):
+            st.markdown(f"**{name}**")
+            st.caption(f"{thb(item['price'])} x {count} = {thb(subtotal)}")
+            with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+                if st.button("−", key=f"d_{name}", help="ลดจำนวน"):
                     for i, x in enumerate(st.session_state.basket):
                         if x["name"] == name:
                             del st.session_state.basket[i]
                             break
                     st.rerun()
-            with b2:
-                st.markdown(f"**{count}**", text_alignment="center")
-            with b3:
-                if st.button("+", key=f"i_{name}", help="เพิ่มจำนวน", width="stretch"):
+                st.markdown(f"**{count}**")
+                if st.button("+", key=f"i_{name}", help="เพิ่มจำนวน"):
                     st.session_state.basket.append(item)
                     st.rerun()
 

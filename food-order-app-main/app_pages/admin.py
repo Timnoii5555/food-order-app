@@ -31,8 +31,6 @@ ctx = load_shop_context()
 # ============================================================================
 if not st.session_state.admin_authenticated:
     st.subheader("เข้าสู่ระบบหลังร้าน", anchor=False, icon=":material/lock:")
-    if st.button("กลับ", icon=":material/arrow_back:"):
-        st.switch_page("app_pages/menu.py")
 
     if not ADMIN_READY:
         st.error(
@@ -132,7 +130,7 @@ st.subheader("จัดการร้าน", anchor=False, icon=":material/set
 with st.container(horizontal=True):
     if st.button("ออกจากระบบ", icon=":material/logout:"):
         st.session_state.admin_authenticated = False
-        st.switch_page("app_pages/menu.py")
+        st.rerun()
     if st.button("รีเฟรชทุกอุปกรณ์", type="primary", icon=":material/sync:"):
         trigger_global_refresh()
         st.toast("ส่งคำสั่งรีเฟรชแล้ว", icon=":material/sync:")
