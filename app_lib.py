@@ -725,7 +725,7 @@ def render_header(contact_info: dict) -> None:
             st.markdown("# 🍲")
     with header_name:
         st.title("TimNoi Shabu", text_alignment="left")
-        st.caption("ร้านนี้ไม่มีหมูเพราะที่เห็นเป็นเนื้อหมา")
+        st.caption("หมูพรีเมียมสดสะอาด คัดคุณภาพทุกวัน")
         with st.container(horizontal=True):
             st.caption("🕒 เปิดบริการ 00:00 – 23:59 น.")
             st.caption(f"📞 {contact_info.get('phone', '-')}")
