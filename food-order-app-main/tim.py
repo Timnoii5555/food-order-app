@@ -146,6 +146,26 @@ def thb(amount) -> str:
         return "0 บาท"
 
 
+# Streamlit Cloud (and multiple browser tabs) can run several sessions and
+# auto-refresh fragments against these shared CSV files at the same moment.
+# CSV_READ_ERRORS is what a reader can hit if it catches a file mid-write;
+# atomic_write_csv is how every writer avoids ever producing that state.
+CSV_READ_ERRORS = (OSError, pd.errors.ParserError, pd.errors.EmptyDataError)
+
+
+def atomic_write_csv(df: pd.DataFrame, path: str) -> None:
+    """Write a DataFrame to `path` atomically.
+
+    Writes to a uniquely-named temp file first, then swaps it into place
+    with os.replace() (atomic on both Windows and POSIX). A concurrent
+    reader therefore always sees either the complete old file or the
+    complete new one — never a half-written / empty one.
+    """
+    tmp_path = f"{path}.tmp-{os.getpid()}-{time.time_ns()}"
+    df.to_csv(tmp_path, index=False)
+    os.replace(tmp_path, path)
+
+
 def check_system_updates() -> bool:
     """Return True (and update session state) if shared data changed on disk."""
     should_rerun = False
@@ -192,8 +212,8 @@ def daily_cleanup() -> None:
                 )
                 if is_stale.any():
                     df.loc[is_stale, "สถานะ"] = "expired"
-                    df.to_csv(ORDER_CSV, index=False)
-        except (OSError, pd.errors.ParserError):
+                    atomic_write_csv(df, ORDER_CSV)
+        except CSV_READ_ERRORS:
             pass
 
     if os.path.exists(QUEUE_CSV):
@@ -203,30 +223,44 @@ def daily_cleanup() -> None:
                 q_date_str = str(q_df.iloc[0]["timestamp"]).split()[0]
                 today_date_sys = get_thai_time().strftime("%Y-%m-%d")
                 if q_date_str != today_date_sys:
-                    pd.DataFrame(columns=["queue_id", "customer_name", "timestamp"]).to_csv(
-                        QUEUE_CSV, index=False
+                    atomic_write_csv(
+                        pd.DataFrame(columns=["queue_id", "customer_name", "timestamp"]), QUEUE_CSV
                     )
-        except (OSError, pd.errors.ParserError, IndexError):
+        except (*CSV_READ_ERRORS, IndexError):
             pass
+
+
+DEFAULT_MENU = [
+    {"name": "หมูหมัก", "price": 120, "img": PLACEHOLDER_IMG,
+     "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
+    {"name": "ผักรวม", "price": 40, "img": PLACEHOLDER_IMG,
+     "category": "ผัก (Veggie)", "in_stock": True},
+]
+
+DEFAULT_TABLES = [
+    {"table_name": "โต๊ะ 1", "is_shared": False},
+    {"table_name": "โต๊ะ 2", "is_shared": False},
+    {"table_name": "โต๊ะ 3", "is_shared": False},
+    {"table_name": "โต๊ะ 4", "is_shared": False},
+    {"table_name": "กลับบ้าน", "is_shared": True},
+]
 
 
 def load_menu() -> pd.DataFrame:
     if not os.path.exists(MENU_CSV):
-        default_data = [
-            {"name": "หมูหมัก", "price": 120, "img": PLACEHOLDER_IMG,
-             "category": "เนื้อสัตว์ (Meat)", "in_stock": True},
-            {"name": "ผักรวม", "price": 40, "img": PLACEHOLDER_IMG,
-             "category": "ผัก (Veggie)", "in_stock": True},
-        ]
-        pd.DataFrame(default_data).to_csv(MENU_CSV, index=False)
+        atomic_write_csv(pd.DataFrame(DEFAULT_MENU), MENU_CSV)
     try:
         df = pd.read_csv(MENU_CSV)
         for col, default in (("name", ""), ("price", 0), ("img", ""),
                               ("category", "อื่นๆ (Others)"), ("in_stock", True)):
             if col not in df.columns:
                 df[col] = default
-    except (OSError, pd.errors.ParserError):
-        df = pd.DataFrame(columns=["name", "price", "img", "category", "in_stock"])
+    except CSV_READ_ERRORS:
+        # The file exists but couldn't be parsed (e.g. another session's
+        # write raced with this read). Heal it back to the defaults rather
+        # than showing every customer an empty menu.
+        df = pd.DataFrame(DEFAULT_MENU)
+        atomic_write_csv(df, MENU_CSV)
     df["img"] = df["img"].astype(str)
     df["price"] = pd.to_numeric(df["price"], errors="coerce").fillna(0)
     df["in_stock"] = df["in_stock"].apply(to_bool, default=True)
@@ -235,18 +269,12 @@ def load_menu() -> pd.DataFrame:
 
 def load_tables() -> pd.DataFrame:
     if not os.path.exists(TABLES_CSV):
-        default_tables = pd.DataFrame([
-            {"table_name": "โต๊ะ 1", "is_shared": False},
-            {"table_name": "โต๊ะ 2", "is_shared": False},
-            {"table_name": "โต๊ะ 3", "is_shared": False},
-            {"table_name": "โต๊ะ 4", "is_shared": False},
-            {"table_name": "กลับบ้าน", "is_shared": True},
-        ])
-        default_tables.to_csv(TABLES_CSV, index=False)
+        atomic_write_csv(pd.DataFrame(DEFAULT_TABLES), TABLES_CSV)
     try:
         df = pd.read_csv(TABLES_CSV)
-    except (OSError, pd.errors.ParserError):
-        df = pd.DataFrame(columns=["table_name", "is_shared"])
+    except CSV_READ_ERRORS:
+        df = pd.DataFrame(DEFAULT_TABLES)
+        atomic_write_csv(df, TABLES_CSV)
     if "is_shared" not in df.columns:
         df["is_shared"] = False
     df["is_shared"] = df["is_shared"].apply(to_bool, default=False)
@@ -257,39 +285,42 @@ def load_orders() -> pd.DataFrame:
     cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
     if not os.path.exists(ORDER_CSV):
         df = pd.DataFrame(columns=cols)
-        df.to_csv(ORDER_CSV, index=False)
+        atomic_write_csv(df, ORDER_CSV)
         return df
     try:
         return pd.read_csv(ORDER_CSV)
-    except (OSError, pd.errors.ParserError):
+    except CSV_READ_ERRORS:
+        # Don't overwrite order_history.csv on a transient read glitch —
+        # unlike menu/tables it isn't safe to regenerate, so just degrade
+        # to "no orders this run" instead of risking real history.
         return pd.DataFrame(columns=cols)
 
 
 def load_contacts() -> dict:
     default_contact = {"phone": "0XX-XXX-XXXX", "line": "@timnoishabu", "facebook": "", "instagram": ""}
     if not os.path.exists(CONTACT_CSV):
-        pd.DataFrame([default_contact]).to_csv(CONTACT_CSV, index=False)
+        atomic_write_csv(pd.DataFrame([default_contact]), CONTACT_CSV)
         return default_contact
     try:
         row = pd.read_csv(CONTACT_CSV).iloc[0].to_dict()
         return {**default_contact, **{k: v for k, v in row.items() if pd.notna(v)}}
-    except (OSError, pd.errors.ParserError, IndexError):
+    except (*CSV_READ_ERRORS, IndexError):
         return default_contact
 
 
 def save_contacts(data: dict) -> None:
-    pd.DataFrame([data]).to_csv(CONTACT_CSV, index=False)
+    atomic_write_csv(pd.DataFrame([data]), CONTACT_CSV)
 
 
 def load_queue() -> pd.DataFrame:
     cols = ["queue_id", "customer_name", "timestamp"]
     if not os.path.exists(QUEUE_CSV):
         df = pd.DataFrame(columns=cols)
-        df.to_csv(QUEUE_CSV, index=False)
+        atomic_write_csv(df, QUEUE_CSV)
         return df
     try:
         return pd.read_csv(QUEUE_CSV)
-    except (OSError, pd.errors.ParserError):
+    except CSV_READ_ERRORS:
         return pd.DataFrame(columns=cols)
 
 
@@ -308,7 +339,7 @@ def add_to_queue(name: str):
     new_row = {"queue_id": new_id, "customer_name": name,
                "timestamp": datetime_now_str()}
     df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    df.to_csv(QUEUE_CSV, index=False)
+    atomic_write_csv(df, QUEUE_CSV)
     trigger_global_refresh()
     return new_id, False
 
@@ -320,7 +351,7 @@ def datetime_now_str() -> str:
 def pop_queue() -> None:
     df = load_queue()
     if not df.empty:
-        df.iloc[1:].to_csv(QUEUE_CSV, index=False)
+        atomic_write_csv(df.iloc[1:], QUEUE_CSV)
         trigger_global_refresh()
 
 
@@ -328,11 +359,11 @@ def load_feedback() -> pd.DataFrame:
     cols = ["timestamp", "customer_name", "message"]
     if not os.path.exists(FEEDBACK_CSV):
         df = pd.DataFrame(columns=cols)
-        df.to_csv(FEEDBACK_CSV, index=False)
+        atomic_write_csv(df, FEEDBACK_CSV)
         return df
     try:
         return pd.read_csv(FEEDBACK_CSV)
-    except (OSError, pd.errors.ParserError):
+    except CSV_READ_ERRORS:
         return pd.DataFrame(columns=cols)
 
 
@@ -341,13 +372,13 @@ def save_feedback_entry(name: str, message: str) -> None:
     new_entry = {"timestamp": get_thai_time().strftime("%d/%m/%Y %H:%M"),
                  "customer_name": name, "message": message}
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-    df.to_csv(FEEDBACK_CSV, index=False)
+    atomic_write_csv(df, FEEDBACK_CSV)
 
 
 def delete_feedback_entry(index) -> None:
     df = load_feedback()
     try:
-        df.drop(index).to_csv(FEEDBACK_CSV, index=False)
+        atomic_write_csv(df.drop(index), FEEDBACK_CSV)
     except KeyError:
         pass
 
@@ -356,11 +387,11 @@ def load_login_log() -> pd.DataFrame:
     cols = ["timestamp", "declared_name", "status"]
     if not os.path.exists(LOGIN_LOG_CSV):
         df = pd.DataFrame(columns=cols)
-        df.to_csv(LOGIN_LOG_CSV, index=False)
+        atomic_write_csv(df, LOGIN_LOG_CSV)
         return df
     try:
         return pd.read_csv(LOGIN_LOG_CSV)
-    except (OSError, pd.errors.ParserError):
+    except CSV_READ_ERRORS:
         return pd.DataFrame(columns=cols)
 
 
@@ -369,7 +400,7 @@ def save_login_log(declared_name: str, status: str = "Success") -> None:
     new_entry = {"timestamp": get_thai_time().strftime("%d/%m/%Y %H:%M:%S"),
                  "declared_name": declared_name or "ไม่ระบุชื่อ", "status": status}
     df = pd.concat([df, pd.DataFrame([new_entry])], ignore_index=True)
-    df.to_csv(LOGIN_LOG_CSV, index=False)
+    atomic_write_csv(df, LOGIN_LOG_CSV)
 
 
 def save_image(uploaded_file) -> str | None:
@@ -463,15 +494,15 @@ def save_order(data: dict) -> str:
         old_note = "" if old_note == "nan" else old_note
         df.at[i, "หมายเหตุ"] = f"{old_note} | {data['หมายเหตุ']}" if data["หมายเหตุ"] else old_note
         df.at[i, "เวลา"] = data["เวลา"]
-        df.to_csv(ORDER_CSV, index=False)
+        atomic_write_csv(df, ORDER_CSV)
         status_result = "merged"
     else:
         cols = ["เวลา", "โต๊ะ", "ลูกค้า", "รายการอาหาร", "ยอดรวม", "หมายเหตุ", "สถานะ"]
         df_new = pd.DataFrame([data])[cols]
-        if not os.path.exists(ORDER_CSV):
-            df_new.to_csv(ORDER_CSV, index=False)
-        else:
-            df_new.to_csv(ORDER_CSV, mode="a", header=False, index=False)
+        # Append onto the already-loaded `df` and rewrite the whole file
+        # atomically, rather than a separate mode="a" append — one fewer
+        # code path, and it can never leave a torn header/row behind.
+        atomic_write_csv(pd.concat([df, df_new], ignore_index=True), ORDER_CSV)
         status_result = "new"
 
     if st.session_state.get("my_queue_id"):
@@ -540,6 +571,44 @@ def live_refresh_watcher():
 live_refresh_watcher()
 
 # ============================================================================
+# "Why order here" — value-proposition content shown on the welcome screen
+# and from the header menu, so both new and returning customers can see how
+# this beats calling a server over / ordering through a third-party app.
+# ============================================================================
+WHY_US_POINTS = [
+    (":material/bolt:", "สั่งตรงเข้าครัวทันที",
+     "กดยืนยันปุ๊บ ออเดอร์เข้าระบบครัวทันที ไม่ต้องเรียกพนักงาน ไม่ต้องรอจด ไม่มีตกหล่น"),
+    (":material/inventory_2:", "เห็นสต็อกจริงแบบเรียลไทม์",
+     "เมนูไหนหมด ระบบขึ้น “หมดสต็อก” ให้ทันที ไม่ต้องสั่งแล้วผิดหวังทีหลัง"),
+    (":material/sell:", "ไม่มีค่าคอมมิชชั่นแฝง",
+     "ต่างจากแอปส่งอาหารทั่วไป ราคาที่เห็นในเมนูคือราคาที่จ่ายจริง ไม่มีค่าบริการบวกเพิ่ม"),
+    (":material/privacy_tip:", "ไม่ต้องสมัครสมาชิก",
+     "ใช้แค่ชื่อเล่นกับโต๊ะที่นั่ง ไม่ต้องโหลดแอป ไม่ต้องผูกบัตร ไม่เก็บข้อมูลเกินจำเป็น"),
+    (":material/confirmation_number:", "มีระบบคิวให้อัตโนมัติ",
+     "ช่วงครัวแน่นไม่ต้องยืนรอหน้าเคาน์เตอร์ รับบัตรคิวออนไลน์ แล้วเช็กสถานะจากมือถือได้เลย"),
+    (":material/add_shopping_cart:", "สั่งเพิ่มได้เรื่อยๆ ในบิลเดียว",
+     "อยากสั่งเพิ่มระหว่างมื้อ ระบบรวมเข้าออเดอร์เดิมของโต๊ะให้อัตโนมัติ เช็กบิลง่าย จ่ายทีเดียวจบ"),
+]
+
+
+def render_why_us_grid() -> None:
+    # A single column, not st.columns(2): most visitors open this from a
+    # phone (QR code at the table), and a 2-up grid re-orders column-major
+    # once it stacks on a narrow screen — a single column keeps these in
+    # the intended reading order on every screen size.
+    for icon, title, desc in WHY_US_POINTS:
+        with st.container(border=True):
+            st.markdown(f"{icon} **{title}**")
+            st.caption(desc)
+
+
+@st.dialog("ทำไมต้องสั่งผ่านหน้านี้?", width="large", icon=":material/help:")
+def show_why_us_dialog() -> None:
+    st.caption("จุดเด่นของระบบสั่งอาหารออนไลน์ของ TimNoi Shabu เทียบกับการสั่งแบบเดิม")
+    render_why_us_grid()
+
+
+# ============================================================================
 # 6. Header
 # ============================================================================
 if os.path.exists("logo.png"):
@@ -568,6 +637,8 @@ with header_menu:
             st.session_state.app_mode = "customer"
             st.session_state.page = "feedback"
             st.rerun()
+        if st.button("ทำไมต้องสั่งผ่านที่นี่?", icon=":material/help:", width="stretch"):
+            show_why_us_dialog()
         if st.button("จัดการร้าน (Admin)", icon=":material/admin_panel_settings:", width="stretch"):
             st.session_state.app_mode = "admin_login"
             st.session_state.login_phase = 1
@@ -707,7 +778,7 @@ elif st.session_state.app_mode == "admin_dashboard":
                 if st.button("ยกเลิกออเดอร์", type="primary", icon=":material/delete:"):
                     fresh = load_orders()
                     fresh.at[order_index, "สถานะ"] = "cancelled"
-                    fresh.to_csv(ORDER_CSV, index=False)
+                    atomic_write_csv(fresh, ORDER_CSV)
                     trigger_global_refresh()
                     st.toast("ยกเลิกออเดอร์แล้ว", icon=":material/delete:")
                     st.rerun()
@@ -746,7 +817,7 @@ elif st.session_state.app_mode == "admin_dashboard":
                                       icon=":material/payments:", width="stretch"):
                             fresh = load_orders()
                             fresh.at[index, "สถานะ"] = "paid"
-                            fresh.to_csv(ORDER_CSV, index=False)
+                            atomic_write_csv(fresh, ORDER_CSV)
                             trigger_global_refresh()
                             st.toast("รับเงินเรียบร้อย", icon=":material/check_circle:")
                             st.rerun(scope="fragment")
@@ -801,7 +872,7 @@ elif st.session_state.app_mode == "admin_dashboard":
         if st.button("บันทึกสต็อก", icon=":material/save:"):
             fresh = load_menu()
             fresh["in_stock"] = edited["in_stock"].values
-            fresh.to_csv(MENU_CSV, index=False)
+            atomic_write_csv(fresh, MENU_CSV)
             st.toast("บันทึกสต็อกแล้ว", icon=":material/check_circle:")
 
         st.write("#### จัดการโต๊ะ")
@@ -812,7 +883,7 @@ elif st.session_state.app_mode == "admin_dashboard":
                 new_t = clean_text(new_t, 40)
                 if new_t and new_t not in tables_df["table_name"].astype(str).tolist():
                     new_row = pd.DataFrame([{"table_name": new_t, "is_shared": is_shared_new}])
-                    pd.concat([tables_df, new_row], ignore_index=True).to_csv(TABLES_CSV, index=False)
+                    atomic_write_csv(pd.concat([tables_df, new_row], ignore_index=True), TABLES_CSV)
                     trigger_global_refresh()
                     st.rerun()
                 else:
@@ -827,7 +898,7 @@ elif st.session_state.app_mode == "admin_dashboard":
             with st.container(horizontal=True):
                 if st.button("ลบโต๊ะ", type="primary", icon=":material/delete:"):
                     fresh = load_tables()
-                    fresh[fresh["table_name"] != table_name].to_csv(TABLES_CSV, index=False)
+                    atomic_write_csv(fresh[fresh["table_name"] != table_name], TABLES_CSV)
                     trigger_global_refresh()
                     st.rerun()
                 if st.button("ปิด"):
@@ -853,7 +924,7 @@ elif st.session_state.app_mode == "admin_dashboard":
                     final_path = save_image(up_file) if up_file else url_img
                     new_m = pd.DataFrame([{"name": n, "price": p, "img": final_path,
                                             "category": c, "in_stock": True}])
-                    pd.concat([load_menu(), new_m], ignore_index=True).to_csv(MENU_CSV, index=False)
+                    atomic_write_csv(pd.concat([load_menu(), new_m], ignore_index=True), MENU_CSV)
                     st.rerun()
                 else:
                     st.error("กรุณาใส่ชื่อเมนู")
@@ -870,7 +941,7 @@ elif st.session_state.app_mode == "admin_dashboard":
             with st.container(horizontal=True):
                 if st.button("ลบเมนู", type="primary", icon=":material/delete:"):
                     fresh = load_menu()
-                    fresh[fresh["name"] != item_name].to_csv(MENU_CSV, index=False)
+                    atomic_write_csv(fresh[fresh["name"] != item_name], MENU_CSV)
                     st.rerun()
                 if st.button("ปิด"):
                     st.rerun()
@@ -952,8 +1023,8 @@ elif st.session_state.app_mode == "admin_dashboard":
             st.write("ยืนยันล้างประวัติการเข้าสู่ระบบทั้งหมดใช่หรือไม่? การกระทำนี้ย้อนกลับไม่ได้")
             with st.container(horizontal=True):
                 if st.button("ล้างประวัติ", type="primary", icon=":material/delete_forever:"):
-                    pd.DataFrame(columns=["timestamp", "declared_name", "status"]).to_csv(
-                        LOGIN_LOG_CSV, index=False
+                    atomic_write_csv(
+                        pd.DataFrame(columns=["timestamp", "declared_name", "status"]), LOGIN_LOG_CSV
                     )
                     st.rerun()
                 if st.button("ปิด"):
@@ -968,6 +1039,13 @@ elif st.session_state.app_mode == "admin_dashboard":
 else:
     if not st.session_state.details_confirmed:
         st.header("ยินดีต้อนรับ", anchor=False, icon=":material/waving_hand:")
+        st.caption("ระบบสั่งอาหารออนไลน์อย่างเป็นทางการของ TimNoi Shabu")
+        with st.container(horizontal=True, wrap=True):
+            st.badge("สั่งตรงเข้าครัวทันที", icon=":material/bolt:", color="green")
+            st.badge("ไม่มีค่าคอมมิชชั่นแฝง", icon=":material/sell:", color="blue")
+            st.badge("ไม่ต้องสมัครสมาชิก", icon=":material/privacy_tip:", color="violet")
+        with st.expander("ทำไมต้องสั่งผ่านหน้านี้? ดีกว่ายังไง", icon=":material/help:"):
+            render_why_us_grid()
         with st.container(border=True):
             c_name_input = st.text_input("ชื่อลูกค้า (ชื่อเล่น)", value=st.session_state.user_name)
 
@@ -1030,13 +1108,21 @@ else:
     # ========================================================================
     # 10. Customer — logged in
     # ========================================================================
-    with st.container(horizontal=True, horizontal_alignment="distribute", border=True):
+    with st.container(horizontal=True, horizontal_alignment="distribute",
+                       vertical_alignment="center", border=True):
         st.write(f":material/person: **{st.session_state.user_name}**  ·  "
                  f":material/table_restaurant: **{st.session_state.user_table}**")
-        if st.button("เปลี่ยนชื่อ/โต๊ะ", icon=":material/edit:"):
-            st.session_state.details_confirmed = False
-            st.query_params.clear()
-            st.rerun()
+        with st.container(horizontal=True, vertical_alignment="center"):
+            cart_count = len(st.session_state.basket)
+            if cart_count and st.session_state.page != "cart":
+                if st.button(f"ตะกร้า ({cart_count})", icon=":material/shopping_cart:",
+                              type="primary"):
+                    st.session_state.page = "cart"
+                    st.rerun()
+            if st.button("เปลี่ยนชื่อ/โต๊ะ", icon=":material/edit:"):
+                st.session_state.details_confirmed = False
+                st.query_params.clear()
+                st.rerun()
 
     banner_paths = [p for i in range(1, BANNER_COUNT + 1) if (p := find_banner_path(i))]
     if banner_paths:
@@ -1104,27 +1190,48 @@ else:
 
     elif st.session_state.page == "menu":
         st.subheader("เมนู", anchor=False, icon=":material/menu_book:")
+
+        def render_menu_grid(items_df):
+            cols = st.columns(2)
+            for n, (idx, row) in enumerate(items_df.iterrows()):
+                with cols[n % 2]:
+                    with st.container(border=True):
+                        st.image(resolve_img_src(row["img"]), width="stretch")
+                        st.markdown(f"**{row['name']}**")
+                        if row["in_stock"]:
+                            st.caption(thb(row["price"]))
+                            if st.button("เพิ่มลงตะกร้า", key=f"add_{idx}",
+                                          icon=":material/add_shopping_cart:", width="stretch"):
+                                st.session_state.basket.append(row.to_dict())
+                                st.toast(f"เพิ่ม {row['name']} แล้ว", icon=":material/check_circle:")
+                                # Rerun so the cart badge in the header (rendered earlier in
+                                # the script, above this grid) picks up the new count right
+                                # away instead of lagging one interaction behind.
+                                st.rerun()
+                        else:
+                            st.badge("หมดสต็อก", icon=":material/block:", color="red")
+                            st.button("หมดสต็อก", key=f"no_{idx}", disabled=True, width="stretch")
+
         categories = [c for c in menu_df["category"].dropna().unique().tolist() if str(c).strip()]
-        if categories:
-            tabs = st.tabs(categories)
-            for tab, cat in zip(tabs, categories):
-                with tab:
-                    items = menu_df[menu_df["category"] == cat]
-                    cols = st.columns(2)
-                    for n, (idx, row) in enumerate(items.iterrows()):
-                        with cols[n % 2]:
-                            with st.container(border=True):
-                                st.image(resolve_img_src(row["img"]), width="stretch")
-                                st.markdown(f"**{row['name']}**")
-                                if row["in_stock"]:
-                                    st.caption(thb(row["price"]))
-                                    if st.button("เพิ่มลงตะกร้า", key=f"add_{idx}",
-                                                  icon=":material/add_shopping_cart:", width="stretch"):
-                                        st.session_state.basket.append(row.to_dict())
-                                        st.toast(f"เพิ่ม {row['name']} แล้ว", icon=":material/check_circle:")
-                                else:
-                                    st.badge("หมดสต็อก", icon=":material/block:", color="red")
-                                    st.button("หมดสต็อก", key=f"no_{idx}", disabled=True, width="stretch")
+        search_query = st.text_input(
+            "ค้นหาเมนู", placeholder="ค้นหาเมนู เช่น หมูหมัก, ผักรวม...",
+            icon=":material/search:", label_visibility="collapsed",
+        )
+        search_query = (search_query or "").strip()
+
+        if search_query:
+            matches = menu_df[menu_df["name"].astype(str).str.contains(search_query, case=False, na=False)]
+            st.caption(f'ผลการค้นหา "{search_query}" — พบ {len(matches)} รายการ')
+            if len(matches):
+                render_menu_grid(matches)
+            else:
+                st.info("ไม่พบเมนูที่ค้นหา ลองคำอื่นดูนะครับ", icon=":material/search_off:")
+        elif categories:
+            pill_options = ["ทั้งหมด"] + categories
+            selected = st.pills("หมวดหมู่", pill_options, default="ทั้งหมด",
+                                 required=True, label_visibility="collapsed")
+            items = menu_df if selected == "ทั้งหมด" else menu_df[menu_df["category"] == selected]
+            render_menu_grid(items)
         else:
             st.info("ยังไม่มีเมนูในระบบ", icon=":material/info:")
 

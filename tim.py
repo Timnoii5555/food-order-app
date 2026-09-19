@@ -1108,13 +1108,21 @@ else:
     # ========================================================================
     # 10. Customer — logged in
     # ========================================================================
-    with st.container(horizontal=True, horizontal_alignment="distribute", border=True):
+    with st.container(horizontal=True, horizontal_alignment="distribute",
+                       vertical_alignment="center", border=True):
         st.write(f":material/person: **{st.session_state.user_name}**  ·  "
                  f":material/table_restaurant: **{st.session_state.user_table}**")
-        if st.button("เปลี่ยนชื่อ/โต๊ะ", icon=":material/edit:"):
-            st.session_state.details_confirmed = False
-            st.query_params.clear()
-            st.rerun()
+        with st.container(horizontal=True, vertical_alignment="center"):
+            cart_count = len(st.session_state.basket)
+            if cart_count and st.session_state.page != "cart":
+                if st.button(f"ตะกร้า ({cart_count})", icon=":material/shopping_cart:",
+                              type="primary"):
+                    st.session_state.page = "cart"
+                    st.rerun()
+            if st.button("เปลี่ยนชื่อ/โต๊ะ", icon=":material/edit:"):
+                st.session_state.details_confirmed = False
+                st.query_params.clear()
+                st.rerun()
 
     banner_paths = [p for i in range(1, BANNER_COUNT + 1) if (p := find_banner_path(i))]
     if banner_paths:
@@ -1182,27 +1190,48 @@ else:
 
     elif st.session_state.page == "menu":
         st.subheader("เมนู", anchor=False, icon=":material/menu_book:")
+
+        def render_menu_grid(items_df):
+            cols = st.columns(2)
+            for n, (idx, row) in enumerate(items_df.iterrows()):
+                with cols[n % 2]:
+                    with st.container(border=True):
+                        st.image(resolve_img_src(row["img"]), width="stretch")
+                        st.markdown(f"**{row['name']}**")
+                        if row["in_stock"]:
+                            st.caption(thb(row["price"]))
+                            if st.button("เพิ่มลงตะกร้า", key=f"add_{idx}",
+                                          icon=":material/add_shopping_cart:", width="stretch"):
+                                st.session_state.basket.append(row.to_dict())
+                                st.toast(f"เพิ่ม {row['name']} แล้ว", icon=":material/check_circle:")
+                                # Rerun so the cart badge in the header (rendered earlier in
+                                # the script, above this grid) picks up the new count right
+                                # away instead of lagging one interaction behind.
+                                st.rerun()
+                        else:
+                            st.badge("หมดสต็อก", icon=":material/block:", color="red")
+                            st.button("หมดสต็อก", key=f"no_{idx}", disabled=True, width="stretch")
+
         categories = [c for c in menu_df["category"].dropna().unique().tolist() if str(c).strip()]
-        if categories:
-            tabs = st.tabs(categories)
-            for tab, cat in zip(tabs, categories):
-                with tab:
-                    items = menu_df[menu_df["category"] == cat]
-                    cols = st.columns(2)
-                    for n, (idx, row) in enumerate(items.iterrows()):
-                        with cols[n % 2]:
-                            with st.container(border=True):
-                                st.image(resolve_img_src(row["img"]), width="stretch")
-                                st.markdown(f"**{row['name']}**")
-                                if row["in_stock"]:
-                                    st.caption(thb(row["price"]))
-                                    if st.button("เพิ่มลงตะกร้า", key=f"add_{idx}",
-                                                  icon=":material/add_shopping_cart:", width="stretch"):
-                                        st.session_state.basket.append(row.to_dict())
-                                        st.toast(f"เพิ่ม {row['name']} แล้ว", icon=":material/check_circle:")
-                                else:
-                                    st.badge("หมดสต็อก", icon=":material/block:", color="red")
-                                    st.button("หมดสต็อก", key=f"no_{idx}", disabled=True, width="stretch")
+        search_query = st.text_input(
+            "ค้นหาเมนู", placeholder="ค้นหาเมนู เช่น หมูหมัก, ผักรวม...",
+            icon=":material/search:", label_visibility="collapsed",
+        )
+        search_query = (search_query or "").strip()
+
+        if search_query:
+            matches = menu_df[menu_df["name"].astype(str).str.contains(search_query, case=False, na=False)]
+            st.caption(f'ผลการค้นหา "{search_query}" — พบ {len(matches)} รายการ')
+            if len(matches):
+                render_menu_grid(matches)
+            else:
+                st.info("ไม่พบเมนูที่ค้นหา ลองคำอื่นดูนะครับ", icon=":material/search_off:")
+        elif categories:
+            pill_options = ["ทั้งหมด"] + categories
+            selected = st.pills("หมวดหมู่", pill_options, default="ทั้งหมด",
+                                 required=True, label_visibility="collapsed")
+            items = menu_df if selected == "ทั้งหมด" else menu_df[menu_df["category"] == selected]
+            render_menu_grid(items)
         else:
             st.info("ยังไม่มีเมนูในระบบ", icon=":material/info:")
 

@@ -1,0 +1,46 @@
+[theme]
+# TimNoi Shabu brand theme — warm brown & gold, matching the restaurant logo.
+# Edit these tokens (not CSS) to re-skin the app; see the Streamlit theming
+# docs: https://docs.streamlit.io/develop/concepts/configuration/theming
+base = "light"
+primaryColor = "#6D4C41"
+backgroundColor = "#FDFBF7"
+secondaryBackgroundColor = "#F2E9DC"
+textColor = "#2B1B12"
+borderColor = "#E4D5BF"
+linkColor = "#8A5A2B"
+linkUnderline = false
+
+greenColor = "#2E7D32"
+greenBackgroundColor = "#E8F5E9"
+greenTextColor = "#1B5E20"
+redColor = "#C62828"
+redBackgroundColor = "#FDECEA"
+redTextColor = "#8E1F1F"
+orangeColor = "#E65100"
+orangeBackgroundColor = "#FFF3E0"
+orangeTextColor = "#A34600"
+blueColor = "#1565C0"
+grayColor = "#8D7A6B"
+
+baseRadius = "large"
+buttonRadius = "large"
+showWidgetBorder = true
+dataframeBorderColor = "#E4D5BF"
+dataframeHeaderBackgroundColor = "#F2E9DC"
+
+font = "Sarabun:https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap"
+headingFont = "Sarabun:https://fonts.googleapis.com/css2?family=Sarabun:wght@600;700&display=swap"
+baseFontSize = 16
+baseFontWeight = 400
+headingFontWeights = [700, 700, 600, 600, 600, 600]
+
+[client]
+# Hide the dev-only toolbar (Deploy button etc.) for a clean, app-like feel
+# in front of customers. Only options explicitly set below would still show.
+toolbarMode = "minimal"
+# Never leak Python stack traces / file paths to restaurant customers.
+showErrorDetails = "none"
+
+[server]
+maxUploadSize = 8
