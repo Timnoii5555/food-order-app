@@ -652,12 +652,6 @@ def render_why_us_grid() -> None:
             st.caption(desc)
 
 
-@st.dialog("ทำไมต้องสั่งผ่านหน้านี้?", width="large", icon=":material/help:")
-def show_why_us_dialog() -> None:
-    st.caption("จุดเด่นของระบบสั่งอาหารออนไลน์ของ TimNoi Shabu เทียบกับการสั่งแบบเดิม")
-    render_why_us_grid()
-
-
 # ============================================================================
 # Small, targeted styling touch-up.
 #
@@ -685,30 +679,21 @@ def inject_scoped_css() -> None:
         transform: translateY(-2px);
         box-shadow: 0 10px 24px rgba(61, 39, 20, .14);
     }
-    /* st.navigation must run with position="top" (not "hidden") — see the
-       long comment in tim.py for why "hidden" silently breaks reload on
-       any non-default page. The header above already provides navigation
-       via its "เมนู" popover, so Streamlit's own top nav bar (a stable,
-       documented data-testid — not a guessed class name) is hidden here
-       instead, giving the same look as before with working reloads. */
-    [data-testid="stTopNavLinkContainer"] { display: none !important; }
-    /* The sidebar-expand chevron Streamlit shows next to a top nav bar even
-       though this app never uses st.sidebar for content. */
-    [data-testid="stExpandSidebarButton"] { display: none !important; }
     </style>
     """)
 
 
 # ============================================================================
-# Header — shared across every page. Uses st.switch_page for its own nav
-# instead of Streamlit's automatic sidebar nav (kept hidden), so the visual
-# design stays exactly what it was before the multi-page split.
+# Header + sidebar — shared across every page. Navigation itself is
+# Streamlit's own sidebar page list (st.navigation(position="sidebar") in
+# tim.py) rather than anything built here — the previous "เมนู" popover
+# doubled as both "food menu" and "navigation menu", which was confusing,
+# and a real sidebar is also the standard, more discoverable place for site
+# navigation. render_sidebar_extras() adds the non-navigation bits (contact
+# links, a manual refresh) below Streamlit's auto-generated page list.
 # ============================================================================
 def render_header(contact_info: dict) -> None:
-    if os.path.exists("logo.png"):
-        st.logo("logo.png", size="large")
-
-    header_logo, header_name, header_menu = st.columns([1.1, 2.3, 0.7], vertical_alignment="center")
+    header_logo, header_name = st.columns([1.1, 3], vertical_alignment="center")
     with header_logo:
         if os.path.exists("logo.png"):
             st.image("logo.png", width="stretch")
@@ -720,30 +705,26 @@ def render_header(contact_info: dict) -> None:
         with st.container(horizontal=True):
             st.caption("🕒 เปิดบริการ 00:00 – 23:59 น.")
             st.caption(f"📞 {contact_info.get('phone', '-')}")
-    with header_menu:
-        with st.popover("เมนู", icon=":material/menu:", width="stretch"):
-            st.markdown("**เมนูหลัก**")
-            if st.button("หน้าลูกค้า", icon=":material/storefront:", width="stretch"):
-                st.switch_page("app_pages/menu.py")
-            if st.button("เขียนติชม / สมุดเยี่ยม", icon=":material/rate_review:", width="stretch"):
-                st.switch_page("app_pages/feedback.py")
-            if st.button("ทำไมต้องสั่งผ่านที่นี่?", icon=":material/help:", width="stretch"):
-                show_why_us_dialog()
-            if st.button("จัดการร้าน (Admin)", icon=":material/admin_panel_settings:", width="stretch"):
-                st.switch_page("app_pages/admin.py")
-            if st.button("รีเฟรชหน้านี้", icon=":material/refresh:", width="stretch"):
-                st.rerun()
-            st.markdown("---")
-            st.markdown("**ช่องทางติดต่อ**")
-            fb_url = sanitize_link(contact_info.get("facebook", ""))
-            ig_url = sanitize_link(contact_info.get("instagram", ""))
-            if fb_url:
-                st.link_button("Facebook", fb_url, icon=":material/open_in_new:", width="stretch")
-            if ig_url:
-                st.link_button("Instagram", ig_url, icon=":material/open_in_new:", width="stretch")
-            st.caption(f"LINE: {contact_info.get('line', '-')}")
-
     st.divider()
+
+
+def render_sidebar_extras(contact_info: dict) -> None:
+    if os.path.exists("logo.png"):
+        st.logo("logo.png", size="large")
+    with st.sidebar:
+        if st.button("รีเฟรชหน้านี้", icon=":material/refresh:", width="stretch"):
+            st.rerun()
+        st.markdown("---")
+        st.caption("ช่องทางติดต่อ")
+        fb_url = sanitize_link(contact_info.get("facebook", ""))
+        ig_url = sanitize_link(contact_info.get("instagram", ""))
+        if fb_url:
+            st.link_button("Facebook", fb_url, icon=":material/open_in_new:", width="stretch")
+        if ig_url:
+            st.link_button("Instagram", ig_url, icon=":material/open_in_new:", width="stretch")
+        line_id = contact_info.get("line", "")
+        if line_id:
+            st.caption(f"LINE: {line_id}")
 
 
 def require_customer_identity() -> None:

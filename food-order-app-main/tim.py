@@ -20,7 +20,7 @@ import streamlit as st
 
 from app_lib import (
     daily_cleanup, init_session_state, inject_scoped_css, live_refresh_watcher,
-    load_contacts, render_header, restore_identity_from_query_params,
+    load_contacts, render_header, render_sidebar_extras, restore_identity_from_query_params,
 )
 
 # ============================================================================
@@ -45,18 +45,21 @@ restore_identity_from_query_params()
 daily_cleanup()
 inject_scoped_css()
 live_refresh_watcher()
-render_header(load_contacts())
+
+contacts = load_contacts()
+render_header(contacts)
 
 # ============================================================================
 # Routing — a real multi-page app (distinct, bookmarkable URLs) using
-# Streamlit's own navigation. position="hidden" looks tempting (the header
-# above already provides navigation via its "เมนู" popover) but it has a
-# real bug: reloading the browser on a non-default page silently bounces
-# back to the default page, since "hidden" also switches off the bit of
-# Streamlit that reads the current path back out of the URL on a fresh
-# load. position="top" doesn't have that bug, so it's used here instead,
-# with its nav bar hidden by the one targeted CSS rule in
-# inject_scoped_css() (Streamlit's own stable data-testid, not a guess).
+# Streamlit's own sidebar navigation. Earlier this used position="top" with
+# a custom "เมนู" popover for navigation, hiding Streamlit's built-in nav
+# bar — but a hidden/collapsed sidebar toggle isn't where people expect
+# site navigation to live, and doubling "เมนู" as both "food menu" and
+# "site navigation" was confusing. position="sidebar" (Streamlit's default)
+# gives a real, always-reachable sidebar nav on every page; it does not
+# have the reload-routing bug position="hidden" has (see git history) now
+# that check_system_updates() (app_lib.py) never reports a change on a
+# session's very first check.
 # ============================================================================
 pages = st.navigation(
     [
@@ -66,9 +69,12 @@ pages = st.navigation(
                 url_path="cart"),
         st.Page("app_pages/feedback.py", title="ติชม", icon=":material/rate_review:",
                 url_path="feedback"),
+        st.Page("app_pages/why_us.py", title="ทำไมต้องสั่งที่นี่", icon=":material/help:",
+                url_path="why-us"),
         st.Page("app_pages/admin.py", title="แอดมิน", icon=":material/admin_panel_settings:",
                 url_path="admin"),
     ],
-    position="top",
+    position="sidebar",
 )
+render_sidebar_extras(contacts)
 pages.run()

@@ -3,7 +3,7 @@
 import streamlit as st
 
 from app_lib import (
-    clean_text, load_shop_context, render_customer_topbar, render_why_us_grid,
+    clean_text, load_shop_context, render_customer_topbar,
     resolve_img_src, thb, add_to_queue,
 )
 
@@ -19,8 +19,8 @@ if not st.session_state.details_confirmed:
         st.badge("สั่งตรงเข้าครัวทันที", icon=":material/bolt:", color="green")
         st.badge("ไม่มีค่าคอมมิชชั่นแฝง", icon=":material/sell:", color="blue")
         st.badge("ไม่ต้องสมัครสมาชิก", icon=":material/privacy_tip:", color="violet")
-    with st.expander("ทำไมต้องสั่งผ่านหน้านี้? ดีกว่ายังไง", icon=":material/help:"):
-        render_why_us_grid()
+    if st.button("ทำไมต้องสั่งผ่านหน้านี้? ดีกว่ายังไง", icon=":material/help:"):
+        st.switch_page("app_pages/why_us.py")
 
     with st.container(border=True):
         c_name_input = st.text_input("ชื่อลูกค้า (ชื่อเล่น)", value=st.session_state.user_name)
